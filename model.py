@@ -71,7 +71,10 @@ def neumann(X):
 @jax.jit
 def stimulate(t, X, stimuli):
     for stimulus in stimuli:
-        active = (np.mod(t - stimulus["start"], stimulus["period"]) < stimulus["duration"])  # cyclic
+        active = t > stimulus["start"]
+        active &= t < stimulus["start"] + stimulus["duration"]
+        # for some weird reason checks for cyclic stimuli does not work 
+        # active = (np.mod(t - stimulus["start"], stimulus["period"]) < stimulus["duration"])  # cyclic
         X = np.where(stimulus["field"] * (active), stimulus["field"], X)
     return X
 
