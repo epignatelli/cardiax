@@ -1,10 +1,10 @@
 import jax
 import jax.numpy as np
 import matplotlib.pyplot as plt
+import functools
 
-
-def init(width, height):
-    shape = (width, height)
+@functools.partial(jax.jit, static_argnums=0)
+def init(shape):
     v = np.ones(shape) * 0.99
     w = np.ones(shape) * 0.99
     u = np.zeros(shape)
@@ -76,10 +76,10 @@ def stimulate(t, X, stimuli):
     return X
 
 
-@jax.jit
-def forward(length, params, D, stimuli, dt, log_at=10):
+@functools.partial(jax.jit, static_argnums=0)
+def forward(shape, length, params, D, stimuli, dt, log_at=10):
     # iterate
-    state = init(128, 128)
+    state = init(shape)
     state = jax.lax.fori_loop(0, length, lambda i, state: step(state, i * dt, params, D, stimuli, dt), state)
     return state
 
