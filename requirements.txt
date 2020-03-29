@@ -1,4 +1,4 @@
-pytorch
+torch
 future
 h5py
 jax
