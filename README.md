@@ -1,3 +1,5 @@
+![build](https://github.com/epignatelli/fenton_karma_jax/workflows/build/badge.svg)
+
 # Fenton-Karma model (three currents)
 
 
