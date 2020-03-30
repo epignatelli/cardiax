@@ -24,7 +24,7 @@ The number of iterations is set to `1e3`.
 The field size is set to `(128, 128)`
 |  framework/iterations 	| 1e2       	| 1e3         	| 1e4        	| 1e5        	| 1e6          	|
 |-----------------------	|-----------	|-------------	|------------	|------------	|--------------	|
-| numpy                 	| 180 ms        | 1.84 s      	| E 184 s     	| E 1840 s     	| E 18400 s    	|
+| numpy                 	| 180 ms        | 1.84 s      	| 18.5 s     	| E 184 s     	| E 1840 s    	|
 | JAX (CPU)             	| 93 ms    	    | 916 ms      	| 8.9 s     	| 88 s      	| E 9000 s     	|
 | JAX (GPU)             	| 26 ms     	| 243 ms      	| 2.37 s     	| 24 s     	    | E 240 s      	|
 | JAX (TPU)             	| 14 ms       	| 74 ms      	| 669 ms     	| 6.63 s     	| 66 s       	|
@@ -39,7 +39,11 @@ Contributions of the vectorization of the stepping scheme `jax.lax.fori_loop` on
 | JAX (TPU)             	| 74 ms           	| 6.46 s            |
 
 
-Lower level comparison on the `np.gradient` function
+
+
+#### Lower level comparison on the `np.gradient` function
+On the x axis, the dimension for each of the two axes. On the y, the execution time in seconds.
+JAX results are CPU-based.
 ![test](results/gradient.jpeg)
 
 The hardware used is as follows:
