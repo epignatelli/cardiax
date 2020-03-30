@@ -29,8 +29,8 @@ The number of iterations is set to `1e3`.
 The field size is set to `(128, 128)`. (E) stands for expected times based on linear extrapolation.
 |  framework/iterations 	| 1e2       	| 1e3         	| 1e4        	| 1e5        	| 1e6          	|
 |-----------------------	|-----------	|-------------	|------------	|------------	|--------------	|
-| numpy                 	| 180 ms        | 1.84 s      	| 18.5 s     	| 186 s     	| (E) 1840 s  	|
-| JAX (CPU)             	| 93 ms    	    | 916 ms      	| 8.9 s     	| 88 s      	| 894s    	|
+| numpy                 	| 180 ms        | 1.84 s      	| 18.5 s     	| 186 s     	| 1872 s    	|
+| JAX (CPU)             	| 93 ms    	    | 916 ms      	| 8.9 s     	| 88 s      	| 894 s       	|
 | JAX (GPU)             	| 26 ms     	| 243 ms      	| 2.37 s     	| 24 s     	    | 180 s      	|
 | JAX (TPU)             	| 14 ms       	| 74 ms      	| 669 ms     	| 6.63 s     	| 66 s       	|
 
