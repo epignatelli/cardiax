@@ -80,22 +80,38 @@ def stimulate(t, X, stimuli):
 
 
 @functools.partial(jax.jit, static_argnums=0)
-def forward(shape, length, params, D, stimuli, dt, log_at=10):
+def forward(shape, length, params, D, stimuli, dt):
     # iterate
     state = init(shape)
     state = jax.lax.fori_loop(0, length, lambda i, state: step(state, i * dt, params, D, stimuli, dt), state)
     return state
 
 
+def forward_by_step(state, length, params, D, stimuli, dt, log_at=10):
+    for t in np.arange(0, length, log_at):
+        state = jax.lax.fori_loop(t, t + log_at, lambda i, state: step(state, i * dt, params, D, stimuli, dt), state)
+        print("t: %s" % (t + log_at))
+        show(state)
+        
+    # check if there is a leftover from the for loop
+    if not length % log_at:
+        state = jax.lax.fori_loop(t, length % log_at, lambda i, state: step(state, i * dt, params, D, stimuli, dt), state)
+        print("t: %s" % t)
+        show(state)
+    return state
+
 def show(state, **kwargs):
     fig, ax = plt.subplots(1, 3, figsize=(kwargs.pop("figsize", None) or (10, 3)))
-    im = ax[0].imshow(state[0], **kwargs)
+    vmin = kwargs.pop("vmin", -1)
+    vmax = kwargs.pop("vmax", 1)
+    cmap = kwargs.pop("cmap", "RdBu")
+    im = ax[0].imshow(state[0], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
     plt.colorbar(im, ax=ax[0])
     ax[0].set_title("v")
-    im = ax[1].imshow(state[1], **kwargs)
+    im = ax[1].imshow(state[1], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
     plt.colorbar(im, ax=ax[1])
     ax[1].set_title("w")
-    im = ax[2].imshow(state[2], **kwargs)
+    im = ax[2].imshow(state[2], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
     plt.colorbar(im, ax=ax[2])
     ax[2].set_title("u")
     plt.show()
