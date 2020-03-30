@@ -47,8 +47,9 @@ Contributions of the vectorization of the stepping scheme `jax.lax.fori_loop` on
 
 <br>
 
-### Low level comparison on `np.gradients`
-On the x axis, the dimension for each of the two axes. On the y, the execution time in seconds.
+### Low level comparison on `np.gradients` 
+On the x axis, the dimension for each of the two axes. The field size is `(128, 128)`.
+On the y, the execution time in seconds.
 JAX results are CPU-based.
 ![test](results/gradient.jpeg)
 
