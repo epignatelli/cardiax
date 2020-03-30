@@ -10,7 +10,7 @@ This repo provides a python implementation of the FK model described in [Multipl
 
 We test performance and scalability against two quantities, tissue size and number of iterations.
 Tests are performed using the notebooks in the repository, google cola.
-Time is measured using the `timeit` module over 10 runs. Result is the average.
+Time is measured in seconds using the `timeit` module over 10 runs. Result is the average.
 
 <br>
 
@@ -18,10 +18,10 @@ Time is measured using the `timeit` module over 10 runs. Result is the average.
 The number of iterations is set to `1e3`.
 |  framework/field size 	|  (64, 64) 	|  (128, 128) 	| (256, 256) 	| (512, 512) 	| (1024, 1024) 	|
 |-----------------------	|-----------	|-------------	|------------	|------------	|--------------	|
-| numpy                 	| 695 ms    	| 1.85 s     	| 9.56 s    	| 39.5 s    	| 2 min 28 s   	|
-| JAX (CPU)             	| 336 ms    	| 904 ms      	| 2.94 s     	| 11.1 s     	| 45 s         	|
-| JAX (GPU)             	| 193 ms    	| 189 ms      	| 199 ms     	| 237 ms     	| 613 ms       	|
-| JAX (TPU)             	| 59 ms     	| 74 ms      	| 119 ms     	| 272 ms      	| 842 ms       	|
+| numpy                 	| 0.695     	| 1.85         	| 9.56        	| 39.5      	| 148.0        	|
+| JAX (CPU)             	| 0.336        	| 0.904       	| 2.94      	| 11.1      	| 45.0       	|
+| JAX (GPU)             	| 0.193    	    | 0.189      	| 0.199      	| 0.237     	| 0.613        	|
+| JAX (TPU)             	| 0.059     	| 0.074      	| 0.119     	| 0.272      	| 0.842       	|
 
 <br>
 
@@ -29,10 +29,10 @@ The number of iterations is set to `1e3`.
 The field size is set to `(128, 128)`. (E) stands for expected times based on linear extrapolation.
 |  framework/iterations 	| 1e2       	| 1e3         	| 1e4        	| 1e5        	| 1e6          	|
 |-----------------------	|-----------	|-------------	|------------	|------------	|--------------	|
-| numpy                 	| 180 ms        | 1.84 s      	| 18.5 s     	| 186 s     	| 1872 s    	|
-| JAX (CPU)             	| 93 ms    	    | 916 ms      	| 8.9 s     	| 88 s      	| 894 s       	|
-| JAX (GPU)             	| 26 ms     	| 243 ms      	| 2.37 s     	| 24 s     	    | 180 s      	|
-| JAX (TPU)             	| 14 ms       	| 74 ms      	| 669 ms     	| 6.63 s     	| 66 s       	|
+| numpy                 	| 0.180         | 1.84      	| 18.5     	    | 186.0       	| 1872.0      	|
+| JAX (CPU)             	| 0.093    	    | 0.916      	| 8.9         	| 88.0         	| 894.0       	|
+| JAX (GPU)             	| 0.026     	| 0.243      	| 2.37      	| 24.0    	    | 180.0        	|
+| JAX (TPU)             	| 0.014       	| 0.074      	| 0.669     	| 6.63       	| 66.0        	|
 
 <br>
 
@@ -41,9 +41,9 @@ Contributions of the vectorization of the stepping scheme `jax.lax.fori_loop` on
 |  framework/vectorization 	| compiled-for  	| uncompiled-for   	| 
 |-----------------------	|----------------	|------------------	|
 | numpy                 	| \             	| \                	|
-| JAX (CPU)             	| 895 s    	        | 1.87 ms           | 
-| JAX (GPU)             	| 186 ms        	| 2.29 s           	|
-| JAX (TPU)             	| 74 ms           	| 6.46 s            |
+| JAX (CPU)             	| 0.895    	        | 1.87              | 
+| JAX (GPU)             	| 0.186         	| 2.29           	|
+| JAX (TPU)             	| 0.074           	| 6.46              |
 
 <br>
 
