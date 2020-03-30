@@ -38,7 +38,13 @@ Contributions of the vectorization of the stepping scheme `jax.lax.fori_loop` on
 | JAX (GPU)             	| 186 ms        	| 2.29 s           	|
 | JAX (TPU)             	| 74 ms           	| 6.46 s            |
 
+
+Lower level comparison on the `np.gradient` function
+![test](results/gradient.jpeg)
+
 The hardware used is as follows:
+
+
 
 1. `lscpu` returned:
     
