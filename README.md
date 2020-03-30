@@ -23,10 +23,12 @@ The number of iterations is set to `1e3`.
 | JAX (GPU)             	| 0.193    	    | 0.189      	| 0.199      	| 0.237     	| 0.613        	|
 | JAX (TPU)             	| 0.059     	| 0.074      	| 0.119     	| 0.272      	| 0.842       	|
 
+![](results/field_size.png)
+
 <br>
 
 ### Testing the number of iterations
-The field size is set to `(128, 128)`. (E) stands for expected times based on linear extrapolation.
+The field size is set to `(128, 128)`.
 |  framework/iterations 	| 1e2       	| 1e3         	| 1e4        	| 1e5        	| 1e6          	|
 |-----------------------	|-----------	|-------------	|------------	|------------	|--------------	|
 | numpy                 	| 0.180         | 1.84      	| 18.5     	    | 186.0       	| 1872.0      	|
@@ -34,6 +36,7 @@ The field size is set to `(128, 128)`. (E) stands for expected times based on li
 | JAX (GPU)             	| 0.026     	| 0.243      	| 2.37      	| 24.0    	    | 226.0        	|
 | JAX (TPU)             	| 0.014       	| 0.074      	| 0.669     	| 6.63       	| 66.0        	|
 
+![](results/iterations.png)
 <br>
 
 ### Testing the compilation of `for` loops
