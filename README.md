@@ -6,12 +6,13 @@
 This repo provides a python implementation of the FK model described in [Multiple mechanisms of spiral wave breakup in a model of cardiac electrical activity](https://aip.scitation.org/doi/10.1063/1.1504242), using [JAX](https://github.com/google/jax)
 
 
-#### Performance analysis
+## Performance analysis
 
 We test performance and scalability against two quantities, tissue size and number of iterations.
 Tests are performed using the notebooks in the repository, google cola.
 Time is measured using the `timeit` module over 10 runs. Result is the average.
 
+### Testing field size
 The number of iterations is set to `1e3`.
 |  framework/field size 	|  (64, 64) 	|  (128, 128) 	| (256, 256) 	| (512, 512) 	| (1024, 1024) 	|
 |-----------------------	|-----------	|-------------	|------------	|------------	|--------------	|
@@ -21,6 +22,7 @@ The number of iterations is set to `1e3`.
 | JAX (TPU)             	| 59 ms     	| 74 ms      	| 119 ms     	| 272 ms      	| 842 ms       	|
 
 
+### Testing the number of iterations
 The field size is set to `(128, 128)`
 |  framework/iterations 	| 1e2       	| 1e3         	| 1e4        	| 1e5        	| 1e6          	|
 |-----------------------	|-----------	|-------------	|------------	|------------	|--------------	|
@@ -30,6 +32,7 @@ The field size is set to `(128, 128)`
 | JAX (TPU)             	| 14 ms       	| 74 ms      	| 669 ms     	| 6.63 s     	| 66 s       	|
 
 
+### Testing the compilation of `for` loops
 Contributions of the vectorization of the stepping scheme `jax.lax.fori_loop` on `1e3` iterations and field size `(128, 128)`. Note that this test does not include results plotting.
 |  framework/vectorization 	| compiled-for  	| uncompiled-for   	| 
 |-----------------------	|----------------	|------------------	|
@@ -39,15 +42,15 @@ Contributions of the vectorization of the stepping scheme `jax.lax.fori_loop` on
 | JAX (TPU)             	| 74 ms           	| 6.46 s            |
 
 
-
-
-#### Lower level comparison on the `np.gradient` function
+### Low level comparison on `np.gradients`
 On the x axis, the dimension for each of the two axes. On the y, the execution time in seconds.
 JAX results are CPU-based.
 ![test](results/gradient.jpeg)
 
-The hardware used is as follows:
 
+### Settings
+All tests have been performed using googla golab.
+The hardware used is as follows:
 
 
 1. `lscpu` returned:
