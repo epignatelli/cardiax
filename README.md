@@ -24,10 +24,10 @@ The number of iterations is set to `1e3`.
 The field size is set to `(128, 128)`
 |  framework/iterations 	| 1e2       	| 1e3         	| 1e4        	| 1e5        	| 1e6          	|
 |-----------------------	|-----------	|-------------	|------------	|------------	|--------------	|
-| numpy                 	| 528 ms    	| 692 ms      	| 2.35 s     	| 19.1 s     	| 3min 7s      	|
-| JAX (CPU)             	| 514 ms    	| 600 ms      	| 1.47 s     	| 10.2 s     	| 1min 38s     	|
-| JAX (GPU)             	| 643 ms    	| 661 ms      	| 822 ms     	| 2.19 s     	| 16.2 s       	|
-| JAX (TPU)             	| 14 ms       	| 74 ms      	| 992 ms     	| 1.43 s     	| 7.29 s       	|
+| numpy                 	| 180 ms        | 1.84 s      	| E 184 s     	| E 1840 s     	| E 18400 s    	|
+| JAX (CPU)             	| 93 ms    	    | 916 ms      	| 8.9 s     	| 88 s      	| E 9000 s     	|
+| JAX (GPU)             	| 26 ms     	| 243 ms      	| 2.37 s     	| 24 s     	    | E 240 s      	|
+| JAX (TPU)             	| 14 ms       	| 74 ms      	| 669 ms     	| 6.63 s     	| 66 s       	|
 
 
 Contributions of the vectorization of the stepping scheme `jax.lax.fori_loop` on `1e3` iterations and field size `(128, 128)`. Note that this test does not include results plotting.
