@@ -31,10 +31,10 @@ The field size is set to `(128, 128)`
 
 
 Contributions of the vectorization of the stepping scheme `jax.lax.fori_loop` on `1e3` iterations and field size `(128, 128)`. Note that this test does not include results plotting.
-|  framework/vectorization 	| non-vectorised  	| vectorised       	| 
+|  framework/vectorization 	| compiled-for  	| uncompiled-for   	| 
 |-----------------------	|----------------	|------------------	|
 | numpy                 	| \             	| \                	|
-| JAX (CPU)             	| 895 s    	        | 1.87 ms            | 
+| JAX (CPU)             	| 895 s    	        | 1.87 ms           | 
 | JAX (GPU)             	| 186 ms        	| 2.29 s           	|
 | JAX (TPU)             	| 74 ms           	| 6.46 s            |
 
