@@ -6,44 +6,58 @@
 This repo provides a python implementation of the FK model described in [Multiple mechanisms of spiral wave breakup in a model of cardiac electrical activity](https://aip.scitation.org/doi/10.1063/1.1504242), using [JAX](https://github.com/google/jax)
 
 
-#### Performance analysis
+## Performance analysis
 
 We test performance and scalability against two quantities, tissue size and number of iterations.
 Tests are performed using the notebooks in the repository, google cola.
-Time is measured using the `timeit` module over 10 runs. Result is the average.
+Time is measured in seconds using the `timeit` module over 10 runs. Result is the average.
 
+<br>
+
+### Testing field size
 The number of iterations is set to `1e3`.
 |  framework/field size 	|  (64, 64) 	|  (128, 128) 	| (256, 256) 	| (512, 512) 	| (1024, 1024) 	|
 |-----------------------	|-----------	|-------------	|------------	|------------	|--------------	|
-| numpy                 	| 695 ms    	| 1.85 s     	| 9.56 s    	|     	|        	|
-| JAX (CPU)             	| 336 ms    	| 904 ms      	| 2.94 s     	| 11.1 s     	| 45 s         	|
-| JAX (GPU)             	| 193 ms    	| 189 ms      	| 199 ms     	| 237 ms     	| 613 ms       	|
-| JAX (TPU)             	| 59 ms     	| 74 ms      	| 119 ms     	| 272 ms      	| 842 ms       	|
+| numpy                 	| 0.695     	| 1.85         	| 9.56        	| 39.5      	| 148.0        	|
+| JAX (CPU)             	| 0.336        	| 0.904       	| 2.94      	| 11.1      	| 45.0       	|
+| JAX (GPU)             	| 0.193    	    | 0.189      	| 0.199      	| 0.237     	| 0.613        	|
+| JAX (TPU)             	| 0.059     	| 0.074      	| 0.119     	| 0.272      	| 0.842       	|
 
+<br>
 
-The field size is set to `(128, 128)`
+### Testing the number of iterations
+The field size is set to `(128, 128)`. (E) stands for expected times based on linear extrapolation.
 |  framework/iterations 	| 1e2       	| 1e3         	| 1e4        	| 1e5        	| 1e6          	|
 |-----------------------	|-----------	|-------------	|------------	|------------	|--------------	|
-| numpy                 	| 528 ms    	| 692 ms      	| 2.35 s     	| 19.1 s     	| 3min 7s      	|
-| JAX (CPU)             	| 514 ms    	| 600 ms      	| 1.47 s     	| 10.2 s     	| 1min 38s     	|
-| JAX (GPU)             	| 643 ms    	| 661 ms      	| 822 ms     	| 2.19 s     	| 16.2 s       	|
-| JAX (TPU)             	| 1 s       	| 782 ms      	| 992 ms     	| 1.43 s     	| 7.29 s       	|
+| numpy                 	| 0.180         | 1.84      	| 18.5     	    | 186.0       	| 1872.0      	|
+| JAX (CPU)             	| 0.093    	    | 0.916      	| 8.9         	| 88.0         	| 894.0       	|
+| JAX (GPU)             	| 0.026     	| 0.243      	| 2.37      	| 24.0    	    | 226.0        	|
+| JAX (TPU)             	| 0.014       	| 0.074      	| 0.669     	| 6.63       	| 66.0        	|
 
+<br>
 
+### Testing the compilation of `for` loops
 Contributions of the vectorization of the stepping scheme `jax.lax.fori_loop` on `1e3` iterations and field size `(128, 128)`. Note that this test does not include results plotting.
 |  framework/vectorization 	| compiled-for  	| uncompiled-for   	| 
 |-----------------------	|----------------	|------------------	|
 | numpy                 	| \             	| \                	|
-| JAX (CPU)             	| 895 s    	        | 1.87 ms           | 
-| JAX (GPU)             	| 186 ms        	| 2.29 s           	|
-| JAX (TPU)             	| 74 ms           	| 6.46 s            |
+| JAX (CPU)             	| 0.895    	        | 1.87              | 
+| JAX (GPU)             	| 0.186         	| 2.29           	|
+| JAX (TPU)             	| 0.074           	| 6.46              |
 
+<br>
 
-Lower level comparison on the `np.gradient` function
+### Low level comparison on `np.gradients` 
+On the x axis, the dimension for each of the two axes. The field size is `(128, 128)`.
+On the y, the execution time in seconds.
+JAX results are CPU-based.
 ![test](results/gradient.jpeg)
 
-The hardware used is as follows:
+<br>
 
+### Settings
+All tests have been performed using googla golab.
+The hardware used is as follows:
 
 
 1. `lscpu` returned:
