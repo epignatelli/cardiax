@@ -1,0 +1,13 @@
+torch
+future
+h5py
+jax
+jupyter
+jupyterlab
+matplotlib
+numpy
+pandas
+requests
+scipy
+scikit-learn
+tqdm
