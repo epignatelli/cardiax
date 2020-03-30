@@ -29,7 +29,7 @@ The number of iterations is set to `1e3`.
 The field size is set to `(128, 128)`
 |  framework/iterations 	| 1e2       	| 1e3         	| 1e4        	| 1e5        	| 1e6          	|
 |-----------------------	|-----------	|-------------	|------------	|------------	|--------------	|
-| numpy                 	| 180 ms        | 1.84 s      	| 18.5 s     	| E 184 s     	| E 1840 s    	|
+| numpy                 	| 180 ms        | 1.84 s      	| 18.5 s     	| 186 s     	| E 1840 s    	|
 | JAX (CPU)             	| 93 ms    	    | 916 ms      	| 8.9 s     	| 88 s      	| E 9000 s     	|
 | JAX (GPU)             	| 26 ms     	| 243 ms      	| 2.37 s     	| 24 s     	    | 180 s      	|
 | JAX (TPU)             	| 14 ms       	| 74 ms      	| 669 ms     	| 6.63 s     	| 66 s       	|
