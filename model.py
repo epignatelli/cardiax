@@ -150,7 +150,7 @@ def forward(tissue_size=None,
                         stimuli,
                         dt)
     else:
-        state = forward_by_step(field_size,
+        state = _forward_by_step(field_size,
                                n_iter,
                                cell_parameters,
                                diffusion,
