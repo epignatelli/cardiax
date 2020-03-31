@@ -125,7 +125,7 @@ def forward(tissue_size=None,
             stimuli=[],
             dt=0.01,
             dx=0.025,
-            end_time=1000,
+            end_time=100,
             log_at=None):
     if field_size is None and tissue_size is not None:
         field_size = (int(tissue_size[0] / dx), int(tissue_size[1] / dx))
@@ -144,18 +144,18 @@ def forward(tissue_size=None,
     
     if log_at is None:
         state = _forward(field_size,
-                        n_iter,
-                        cell_parameters,
-                        diffusion, 
-                        stimuli,
-                        dt)
+                         n_iter,
+                         cell_parameters,
+                         diffusion, 
+                         stimuli,
+                         dt)
     else:
         state = _forward_by_step(field_size,
-                               n_iter,
-                               cell_parameters,
-                               diffusion,
-                               stimuli,
-                               dt,
-                               log_at)
+                                 n_iter,
+                                 cell_parameters,
+                                 diffusion,
+                                 stimuli,
+                                 dt,
+                                 log_at)
     state[0].block_until_ready()
     return state
