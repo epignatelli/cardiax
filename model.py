@@ -87,7 +87,7 @@ def _forward(shape, n_iter, params, diffusion, stimuli, dt):
     return state
 
 
-def _forward_by_step(state, *, n_iter, params, D, stimuli, dt, log_at=10):
+def _forward_by_step(state, n_iter, params, D, stimuli, dt, log_at=10):
     for t in np.arange(0, n_iter, log_at):
         state = jax.lax.fori_loop(t, t + log_at, lambda i, state: step(state, i * dt, params, D, stimuli, dt), state)
         print("t: %s" % (t + log_at))
