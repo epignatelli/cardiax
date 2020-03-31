@@ -80,22 +80,22 @@ def stimulate(t, X, stimuli):
 
 
 @functools.partial(jax.jit, static_argnums=0)
-def forward(shape, length, params, D, stimuli, dt):
+def _forward(shape, n_iter, params, diffusion, stimuli, dt):
     # iterate
     state = init(shape)
-    state = jax.lax.fori_loop(0, length, lambda i, state: step(state, i * dt, params, D, stimuli, dt), state)
+    state = jax.lax.fori_loop(0, n_iter, lambda i, state: step(state, i * dt, params, diffusion, stimuli, dt), state)
     return state
 
 
-def forward_by_step(state, length, params, D, stimuli, dt, log_at=10):
-    for t in np.arange(0, length, log_at):
+def _forward_by_step(state, *, n_iter, params, D, stimuli, dt, log_at=10):
+    for t in np.arange(0, n_iter, log_at):
         state = jax.lax.fori_loop(t, t + log_at, lambda i, state: step(state, i * dt, params, D, stimuli, dt), state)
         print("t: %s" % (t + log_at))
         show(state)
         
     # check if there is a leftover from the for loop
-    if not length % log_at:
-        state = jax.lax.fori_loop(t, length % log_at, lambda i, state: step(state, i * dt, params, D, stimuli, dt), state)
+    if not n_iter % log_at:
+        state = jax.lax.fori_loop(t, n_iter % log_at, lambda i, state: step(state, i * dt, params, D, stimuli, dt), state)
         print("t: %s" % t)
         show(state)
     return state
@@ -116,3 +116,46 @@ def show(state, **kwargs):
     ax[2].set_title("u")
     plt.show()
     return
+
+
+def forward(tissue_size=None,
+            field_size=None,
+            cell_parameters=None,
+            diffusion=None,
+            stimuli=[],
+            dt=0.01,
+            dx=0.025,
+            end_time=1000,
+            log_at=None):
+    if field_size is None and tissue_size is not None:
+        field_size = (int(tissue_size[0] / dx), int(tissue_size[1] / dx))
+    
+    n_iter = int(end_time / dt)
+    
+    if cell_parameters is None:
+        cell_parameters = params.params_test()
+        
+    if diffusion is None:
+        diffusion = np.ones(field_size) * 0.05
+    elif isinstance(diffusion, float) or isinstance(diffusion, int):
+        diffusion = np.ones(field_size) * diffusion
+    
+    assert diffusion.shape == field_size
+    
+    if log_at is None:
+        state = _forward(field_size,
+                        n_iter,
+                        cell_parameters,
+                        diffusion, 
+                        stimuli,
+                        dt)
+    else:
+        state = forward_by_step(field_size,
+                               n_iter,
+                               cell_parameters,
+                               diffusion,
+                               stimuli,
+                               dt,
+                               log_at)
+    state[0].block_until_ready()
+    return state
