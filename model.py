@@ -2,6 +2,8 @@ import jax
 import jax.numpy as np
 import matplotlib.pyplot as plt
 import functools
+import params
+
 
 @functools.partial(jax.jit, static_argnums=0)
 def init(shape):
@@ -13,7 +15,7 @@ def init(shape):
 
 
 @jax.jit
-def step(state, t, params, D, stimuli, dt):
+def step(state, t, params, D, stimuli, dt, dx):
     v, w, u = state
     
     # apply stimulus
@@ -39,11 +41,11 @@ def step(state, t, params, D, stimuli, dt):
     I_ion = -(J_fi + J_so + J_si) / params["Cm"]
 
     # voltage
-    u_x, u_y = np.gradient(u)
-    u_xx = np.gradient(u_x, axis=0)
-    u_yy = np.gradient(u_y, axis=1)
-    D_x, D_y = np.gradient(D)
-    d_u = 4 * D * (u_xx + u_yy) + ((D_x * u_x) + (D_y * u_y)) + I_ion
+    u_x, u_y = np.gradient(u, dx)
+    u_xx = np.gradient(u_x, dx, axis=0)
+    u_yy = np.gradient(u_y, dx, axis=1)
+    D_x, D_y = np.gradient(D, dx)
+    d_u = D * (u_xx + u_yy) + ((D_x * u_x) + (D_y * u_y)) + I_ion
     return euler((v, w, u), (d_v, d_w, d_u), dt)
 
 
@@ -80,22 +82,23 @@ def stimulate(t, X, stimuli):
 
 
 @functools.partial(jax.jit, static_argnums=0)
-def _forward(shape, n_iter, params, diffusion, stimuli, dt):
+def _forward(shape, n_iter, params, diffusion, stimuli, dt, dx):
     # iterate
     state = init(shape)
-    state = jax.lax.fori_loop(0, n_iter, lambda i, state: step(state, i * dt, params, diffusion, stimuli, dt), state)
+    state = jax.lax.fori_loop(0, n_iter, lambda i, state: step(state, i * dt, params, diffusion, stimuli, dt, dx), state)
     return state
 
 
-def _forward_by_step(state, n_iter, params, D, stimuli, dt, log_at=10):
+def _forward_by_step(shape, n_iter, params, D, stimuli, dt, dx, log_at=10):
+    state = init(shape)
     for t in np.arange(0, n_iter, log_at):
-        state = jax.lax.fori_loop(t, t + log_at, lambda i, state: step(state, i * dt, params, D, stimuli, dt), state)
+        state = jax.lax.fori_loop(t, t + log_at, lambda i, state: step(state, i * dt, params, D, stimuli, dt, dx), state)
         print("t: %s" % (t + log_at))
         show(state)
         
     # check if there is a leftover from the for loop
     if not n_iter % log_at:
-        state = jax.lax.fori_loop(t, n_iter % log_at, lambda i, state: step(state, i * dt, params, D, stimuli, dt), state)
+        state = jax.lax.fori_loop(t, n_iter % log_at, lambda i, state: step(state, i, params, D, stimuli, dt, dx), state)
         print("t: %s" % t)
         show(state)
     return state
@@ -142,13 +145,16 @@ def forward(tissue_size=None,
     
     assert diffusion.shape == field_size
     
+    print("Starting simulation with %s dof for %dms (%d iterations with dt %4f)" % (field_size, end_time, n_iter, dt) )
+    
     if log_at is None:
         state = _forward(field_size,
                          n_iter,
                          cell_parameters,
                          diffusion, 
                          stimuli,
-                         dt)
+                         dt,
+                         dx)
     else:
         state = _forward_by_step(field_size,
                                  n_iter,
@@ -156,6 +162,6 @@ def forward(tissue_size=None,
                                  diffusion,
                                  stimuli,
                                  dt,
+                                 dx,
                                  log_at)
-    state[0].block_until_ready()
     return state
