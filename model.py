@@ -42,10 +42,16 @@ def step(state, t, params, D, stimuli, dt, dx):
     I_ion = -(J_fi + J_so + J_si) / params["Cm"]
 
     # voltage01
-    u_x, u_y = np.gradient(u, dx)
-    u_xx = np.gradient(u_x, dx, axis=0)
-    u_yy = np.gradient(u_y, dx, axis=1)
-    D_x, D_y = np.gradient(D, dx)
+    u_x, u_y = np.gradient(u)
+    u_x /= dx
+    u_y /= dx
+    u_xx = np.gradient(u_x, axis=0)
+    u_yy = np.gradient(u_y, axis=1)
+    u_xx /= dx
+    u_yy /= dx
+    D_x, D_y = np.gradient(D)
+    D_x /= dx
+    D_y /= dx
     d_u = D * (u_xx + u_yy) + (D_x * u_x + D_y * u_y) + I_ion
 
     # euler update
@@ -78,7 +84,7 @@ def stimulate(t, X, stimuli):
 @jax.jit
 def _forward(state, t, t_end, params, diffusion, stimuli, dt, dx):
     # iterate
-    state = jax.lax.fori_loop(t, t_end, lambda i, state: step(state, i * dt, params, diffusion, stimuli, dt, dx), state)
+    state = jax.lax.fori_loop(t, t_end, lambda i, state: step(state, i, params, diffusion, stimuli, dt, dx), state)
     return state
 
 

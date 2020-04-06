@@ -258,25 +258,3 @@ def params_test():
         "tau_w_plus": 300,  # Slow_inward_current_w_gate (ms)
         "D": 0.05,  # diffusivity (cm^2/ms)
     }
-
-
-def scale(params, dt, dx):
-    params["Cm"] /= (dx ** 2) / dt
-    params["tau_d"] /= dt
-    params["tau_v1_minus"] /= dt
-    params["tau_v2_minus"] /= dt
-    params["tau_v_plus"] /= dt
-    params["tau_0"] /= dt
-    params["tau_r"] /= dt
-    params["tau_si"] /= dt
-    params["tau_w_minus"] /= dt
-    params["tau_w_plus"] /= dt
-    return params
-
-
-def scale_diffusivity(d, dt, dx):
-    return d / dt
-
-
-def cm_to_units(tissue_size, dx):
-    return (int(tissue_size[0] / dx), int(tissue_size[1] / dx))
