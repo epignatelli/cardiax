@@ -11,7 +11,7 @@ def init(shape):
     w = np.ones(shape)
     u = np.zeros(shape)
     state = (v, w, u)
-    return state
+    return np.asarray(state)
 
 
 @jax.jit
@@ -58,7 +58,7 @@ def step(state, t, params, D, stimuli, dt, dx):
     v += d_v * dt
     w += d_w * dt
     u += d_u * dt
-    return (v, w, u)
+    return np.asarray((v, w, u))
 
 
 @jax.jit
@@ -88,13 +88,16 @@ def _forward(state, t, t_end, params, diffusion, stimuli, dt, dx):
     return state
 
 
-def _forward_by_step(shape, n_iter, params, D, stimuli, dt, dx, log_at=10):
-    state = init(shape)
-    for t in np.arange(0, n_iter, log_at):
-        state = jax.lax.fori_loop(t, t + log_at, lambda i, state: step(state, i * dt, params, D, stimuli, dt, dx), state)
-        print("t: %s" % ((t + log_at) * dt))
-        show(state)
-    return state
+def _forward_and_stack(state, t, t_end, params, diffusion, stimuli, dt, dx):
+    # iterate
+#     states = np.empty((t_end - t, *(state.shape)))
+    def _step(state, i):
+        new_state = step(state, i, params, diffusion, stimuli, dt, dx)
+        return (new_state, new_state)
+    xs = np.arange(t, t_end)
+#     print(xs)
+    last_state, states = jax.lax.scan(_step, state, xs)
+    return states
 
 
 def show(state, **kwargs):
@@ -112,7 +115,7 @@ def show(state, **kwargs):
     plt.colorbar(im, ax=ax[2])
     ax[2].set_title("u")
     plt.show()
-    return
+    return fig, ax
 
 
 def show_stimuli(*stimuli, **kwargs):
