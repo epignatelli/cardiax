@@ -1,5 +1,6 @@
 _maxfloat = 1e6
 
+
 def _params1():
     params = {
         "tau_v_plus": 3.33,  # Fast_inward_current_v_gate (ms)
@@ -24,25 +25,25 @@ def params1a():
     params = _params1()
     params["tau_d"] = 0.41
     return params
-    
+
 
 def params1b():
     params = _params1()
-    params["tau_d"] = 0.392 
+    params["tau_d"] = 0.392
     return params
-    
+
 
 def params1c():
     params = _params1()
     params["tau_d"] = 0.381
     return params
-    
+
 
 def params1d():
     params = _params1()
     params["tau_d"] = 0.36
     return params
-    
+
 
 def params1e():
     params = _params1()
@@ -106,20 +107,24 @@ def _params4():
         "Cm": 1,  # membrane capacitance (microF / cm^2)
     }
 
+
 def params4a():
     params = _params4()
     params["tau_d"] = 0.407
     return params
+
 
 def params4b():
     params = _params4()
     params["tau_d"] = 0.405
     return params
 
+
 def params4c():
     params = _params4()
     params["tau_d"] = 0.4
     return params
+
 
 def params5():
     return {
@@ -237,10 +242,10 @@ def params10():
 
 def params_test():
     return {
-        "Cm": 1,  # membrane capacitance (microF / cm^2)
+        "Cm": 1,  # membrane capacitance (microF / cm^2) measured in micro Farads
         "V_c": 0.16,
         "V_v": 0.16,
-        "tau_d": 0.125, # excitability
+        "tau_d": 0.125,  # excitability (ms)
         "tau_v1_minus": 82.5,  # Fast_inward_current_v_gate (ms)
         "tau_v2_minus": 60,  # Fast_inward_current_v_gate (ms)
         "tau_v_plus": 5.75,  # Fast_inward_current_v_gate (ms)
@@ -251,5 +256,27 @@ def params_test():
         "k": 10,  # Slow_inward_current (dimensionless)
         "tau_w_minus": 400,  # Slow_inward_current_w_gate (ms)
         "tau_w_plus": 300,  # Slow_inward_current_w_gate (ms)
-        "D": 0.05,  # diffusivity
-}
+        "D": 0.05,  # diffusivity (cm^2/ms)
+    }
+
+
+def scale(params, dt, dx):
+    params["Cm"] /= (dx ** 2) / dt
+    params["tau_d"] /= dt
+    params["tau_v1_minus"] /= dt
+    params["tau_v2_minus"] /= dt
+    params["tau_v_plus"] /= dt
+    params["tau_0"] /= dt
+    params["tau_r"] /= dt
+    params["tau_si"] /= dt
+    params["tau_w_minus"] /= dt
+    params["tau_w_plus"] /= dt
+    return params
+
+
+def scale_diffusivity(d, dt, dx):
+    return d / dt
+
+
+def cm_to_units(tissue_size, dx):
+    return (int(tissue_size[0] / dx), int(tissue_size[1] / dx))
