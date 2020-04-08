@@ -37,7 +37,7 @@ def ms_to_units(value, dt):
 
     
 def units_to_ms(value, dt):
-    return value / dt
+    return value * dt
 
 
 def stimuli_to_units(stimuli, dx, dt):

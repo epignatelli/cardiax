@@ -3,6 +3,7 @@ import jax.numpy as np
 import matplotlib.pyplot as plt
 import functools
 import params
+import convert
 
 
 @functools.partial(jax.jit, static_argnums=0)
@@ -132,46 +133,35 @@ def show_stimuli(*stimuli, **kwargs):
 
 
 def forward(tissue_size=None,
-            field_size=None,
             cell_parameters=None,
-            diffusion=None,
+            diffusion=0.001,
             stimuli=[],
             dt=0.01,
             dx=0.025,
             end_time=100,
-            log_at=None):
-    if field_size is None and tissue_size is not None:
-        field_size = (int(tissue_size[0] / dx), int(tissue_size[1] / dx))
-
-    n_iter = int(end_time / dt)
+            checkpoints=None):
+    if tissue_size is None:
+        tissue_size = (12, 12)
+    shape = convert.field_to_shape(field_size, dx)
+    
+    n_iter = convert.ms_to_units(end_time, dt)
 
     if cell_parameters is None:
         cell_parameters = params.params_test()
 
-    if diffusion is None:
-        diffusion = np.ones(field_size) * 0.05
-    elif isinstance(diffusion, float) or isinstance(diffusion, int):
-        diffusion = np.ones(field_size) * diffusion
-
-    assert diffusion.shape == field_size
+    diffusion = np.ones(shape) * diffusion
+    
+    if checkpoints is None:
+        checkpoints = [0, n_iter]
+    elif isinstance(checkpoint, list):
+        checkpoints = [convert.ms_to_units(ck, dt) for ck in checkpoints]
 
     print("Starting simulation with %s dof for %dms (%d iterations with dt %4f)" % (field_size, end_time, n_iter, dt) )
+    print("Checkpointing at", checkpoints)
 
-    if log_at is None:
-        state = _forward(field_size,
-                         n_iter,
-                         cell_parameters,
-                         diffusion,
-                         stimuli,
-                         dt,
-                         dx)
-    else:
-        state = _forward_by_step(field_size,
-                                 n_iter,
-                                 cell_parameters,
-                                 diffusion,
-                                 stimuli,
-                                 dt,
-                                 dx,
-                                 log_at)
+    state = model.init(shape)
+    for i in range(len(checkpoints) - 1):
+        state = model._forward(state, checkpoints[i], checkpoints[i + 1], cell_parameters, np.ones(shape) * d, stimuli, dt, dx)  # dt = 10000
+        print(checkpoints[i + 1])
+        model.show(state)
     return state

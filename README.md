@@ -23,7 +23,7 @@ The number of iterations is set to `1e3`.
 | JAX (GPU)             	| 0.193    	    | 0.189      	| 0.199      	| 0.237     	| 0.613        	|
 | JAX (TPU)             	| 0.059     	| 0.074      	| 0.119     	| 0.272      	| 0.842       	|
 
-![](results/field_size.png)
+![](results/performance/field_size.png)
 
 <br>
 
@@ -36,7 +36,7 @@ The field size is set to `(128, 128)`.
 | JAX (GPU)             	| 0.026     	| 0.243      	| 2.37      	| 24.0    	    | 226.0        	|
 | JAX (TPU)             	| 0.014       	| 0.074      	| 0.669     	| 6.63       	| 66.0        	|
 
-![](results/iterations.png)
+![](results/performance/iterations.png)
 <br>
 
 ### Testing the compilation of `for` loops
@@ -54,7 +54,7 @@ Contributions of the vectorization of the stepping scheme `jax.lax.fori_loop` on
 On the x axis, the dimension for each of the two axes. The field size is `(128, 128)`.
 On the y, the execution time in seconds.
 JAX results are CPU-based.
-![test](results/gradient.jpeg)
+![test](results/performance/gradient.jpeg)
 
 <br>
 
