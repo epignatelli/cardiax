@@ -163,5 +163,5 @@ def forward(tissue_size=None,
     for i in range(len(checkpoints) - 1):
         state = _forward(state, checkpoints[i], checkpoints[i + 1], cell_parameters, diffusion, stimuli, dt, dx)  # dt = 10000
         print(checkpoints[i + 1])
-        model.show(state)
+        show(state)
     return state
