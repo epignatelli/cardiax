@@ -142,7 +142,7 @@ def forward(tissue_size=None,
             checkpoints=None):
     if tissue_size is None:
         tissue_size = (12, 12)
-    shape = convert.field_to_shape(field_size, dx)
+    shape = convert.field_to_shape(tissue_size, dx)
     
     n_iter = convert.ms_to_units(end_time, dt)
 
@@ -153,15 +153,15 @@ def forward(tissue_size=None,
     
     if checkpoints is None:
         checkpoints = [0, n_iter]
-    elif isinstance(checkpoint, list):
+    elif isinstance(checkpoints, list):
         checkpoints = [convert.ms_to_units(ck, dt) for ck in checkpoints]
 
     print("Starting simulation with %s dof for %dms (%d iterations with dt %4f)" % (field_size, end_time, n_iter, dt) )
     print("Checkpointing at", checkpoints)
 
-    state = model.init(shape)
+    state = init(shape)
     for i in range(len(checkpoints) - 1):
-        state = model._forward(state, checkpoints[i], checkpoints[i + 1], cell_parameters, np.ones(shape) * d, stimuli, dt, dx)  # dt = 10000
+        state = _forward(state, checkpoints[i], checkpoints[i + 1], cell_parameters, diffusion, stimuli, dt, dx)  # dt = 10000
         print(checkpoints[i + 1])
         model.show(state)
     return state
