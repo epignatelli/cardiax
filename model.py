@@ -156,7 +156,7 @@ def forward(tissue_size=None,
     elif isinstance(checkpoints, list):
         checkpoints = [convert.ms_to_units(ck, dt) for ck in checkpoints]
 
-    print("Starting simulation with %s dof for %dms (%d iterations with dt %4f)" % (field_size, end_time, n_iter, dt) )
+    print("Starting simulation with %s dof for %dms (%d iterations with dt %4f)" % (tissue_size, end_time, n_iter, dt) )
     print("Checkpointing at", checkpoints)
 
     state = init(shape)
