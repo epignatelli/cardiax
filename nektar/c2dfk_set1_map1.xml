@@ -1,23 +1,18 @@
 <NEKTAR>
-<!--    <EXPANSIONS>
-        <E COMPOSITE="C[0]" NUMMODES="2" FIELDS="u" TYPE="MODIFIED" />
-    </EXPANSIONS>-->
-
-
     <CONDITIONS>
         <PARAMETERS>
-            <P> TimeStep       = 0.5  </P> <!-- this is milliseconds -->
-            <P> FinTime        = 40000 </P>
-            <P> NumSteps       = FinTime/TimeStep            </P>
-            <P> IO_CheckSteps  = 40/TimeStep      </P>
-            <P> IO_InfoSteps   = 20*IO_CheckSteps              </P>
-            <P> IO_cellsteps   = 100*IO_CheckSteps </P>
-            <P> IterativeSolverTolerance = 1e-05 </P>
-            <P> Chi = 500 </P>   <!-- larger: wavefront moves slower -->
-            <P> Cm = 0.01 </P> <!-- smaller: higher peak mag. of act. -->
-            <P> Substeps = 2 </P> <!-- Courtemanche needs about dt=0.005 -->
-            <P> o_max = 0.5 </P>
-            <P> o_min = 0.0 </P>
+            <P>TimeStep = 0.5</P> <!-- this is milliseconds -->
+            <P>FinTime = 40000</P> <!-- this is milliseconds -->
+            <P>NumSteps = FinTime/TimeStep</P>
+            <P>IO_CheckSteps = 40/TimeStep</P>
+            <P>IO_InfoSteps = 20*IO_CheckSteps</P>
+            <P>IO_cellsteps = 100*IO_CheckSteps</P>
+            <P>IterativeSolverTolerance = 1e-05</P>
+            <P>Chi = 500 </P>   <!-- larger: wavefront moves slower -->
+            <P>Cm = 0.01 </P> <!-- smaller: higher peak mag. of act. -->
+            <P>Substeps = 2 </P> <!-- Courtemanche needs about dt=0.005 -->
+            <P>o_max = 0.5 </P>
+            <P>o_min = 0.0 </P>
         </PARAMETERS>
 
         <SOLVERINFO>
@@ -46,20 +41,7 @@
 
         <FUNCTION NAME="InitialConditions">
             <E VAR="u" VALUE="-85.0" />
-            <!--<F VAR="u" FILE="cardiac_fk_50.rst" />-->
         </FUNCTION>
-
-        <!--<FUNCTION NAME="CellModelInitialConditions">
-            <F VAR="v,w,y,unknown" FILE="cellstate_fk_5.rst" />
-        </FUNCTION>-->
-<!--
-        <FUNCTION NAME="IsotropicConductivity">
-            <F VAR="intensity" FILE="cardiacmesh_150mm2-2_scarmap_new7.fld" />
-        </FUNCTION>
--->
-        <!--        <FUNCTION NAME="AnisotropicConductivity">
-            <E VAR="fx,fy,fz" VALUE="1" />
-        </FUNCTION> -->
 
     </CONDITIONS>
 
@@ -73,11 +55,9 @@
             <p_z2> 0</p_z2>
             <p_is> 100.0</p_is>
             <p_strength> 50 </p_strength>
-            <PROTOCOL TYPE = "ProtocolS1">
+            <PROTOCOL TYPE = "ProtocolSingle">
                 <START> 0.0 </START>
-                <DURATION> 1.0 </DURATION>
-                <S1CYCLELENGTH> 260.0 </S1CYCLELENGTH>
-                <NUM_S1> 2.0 </NUM_S1>
+                <DURATION> 2 * TimeStep </DURATION>
             </PROTOCOL>
         </STIMULUS>
 

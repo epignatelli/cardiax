@@ -2,8 +2,8 @@ import jax
 import jax.numpy as np
 import matplotlib.pyplot as plt
 import functools
-import params
-import convert
+from . import params
+from . import convert
 
 
 @functools.partial(jax.jit, static_argnums=0)
@@ -73,13 +73,14 @@ def neumann(X):
 
 @jax.jit
 def stimulate(t, X, stimuli):
+    stimulated = np.zeros_like(X)
     for stimulus in stimuli:
         active = t > stimulus["start"]
         active &= t < stimulus["start"] + stimulus["duration"]
         # for some weird reason checks for cyclic stimuli does not work
-        active = (np.mod(t - stimulus["start"], stimulus["period"]) < stimulus["duration"])  # cyclic
-        X = np.where(stimulus["field"] * (active), stimulus["field"], X)
-    return X
+        active &= (np.mod(t - stimulus["start"], stimulus["period"]) < stimulus["duration"])  # cyclic
+        stimulated = np.where(stimulus["field"] * (active), stimulus["field"], stimulated)
+    return np.where(stimulated != 0, stimulated, X)
 
 
 @jax.jit
@@ -99,37 +100,6 @@ def _forward_and_stack(state, t, t_end, params, diffusion, stimuli, dt, dx):
 #     print(xs)
     last_state, states = jax.lax.scan(_step, state, xs)
     return states
-
-
-def show(state, **kwargs):
-    fig, ax = plt.subplots(1, 3, figsize=(kwargs.pop("figsize", None) or (10, 3)))
-    vmin = kwargs.pop("vmin", -1)
-    vmax = kwargs.pop("vmax", 1)
-    cmap = kwargs.pop("cmap", "RdBu")
-    im = ax[0].imshow(state[0], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
-    plt.colorbar(im, ax=ax[0])
-    ax[0].set_title("v")
-    im = ax[1].imshow(state[1], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
-    plt.colorbar(im, ax=ax[1])
-    ax[1].set_title("w")
-    im = ax[2].imshow(state[2], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
-    plt.colorbar(im, ax=ax[2])
-    ax[2].set_title("u")
-    plt.show()
-    return fig, ax
-
-
-def show_stimuli(*stimuli, **kwargs):
-    fig, ax = plt.subplots(1, len(stimuli), figsize=(kwargs.pop("figsize", None) or (10, 3)))
-    vmin = kwargs.pop("vmin", -1)
-    vmax = kwargs.pop("vmax", 1)
-    cmap = kwargs.pop("cmap", "RdBu")
-    for i, stimulus in enumerate(stimuli):
-        im = ax[i].imshow(stimulus["field"], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
-        plt.colorbar(im, ax=ax[i])
-        ax[i].set_title("Stimulus %d" % i)
-    plt.show()
-    return
 
 
 def forward(tissue_size=None,
@@ -165,3 +135,67 @@ def forward(tissue_size=None,
         print(checkpoints[i + 1])
         model.show(state)
     return state
+
+
+
+def show(state, **kwargs):
+    fig, ax = plt.subplots(1, 3, figsize=(kwargs.pop("figsize", None) or (10, 3)))
+    vmin = kwargs.pop("vmin", -1)
+    vmax = kwargs.pop("vmax", 1)
+    cmap = kwargs.pop("cmap", "RdBu")
+    im = ax[0].imshow(state[0], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
+    plt.colorbar(im, ax=ax[0])
+    ax[0].set_title("v")
+    im = ax[1].imshow(state[1], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
+    plt.colorbar(im, ax=ax[1])
+    ax[1].set_title("w")
+    im = ax[2].imshow(state[2], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
+    plt.colorbar(im, ax=ax[2])
+    ax[2].set_title("u")
+    plt.show()
+    return fig, ax
+
+
+def show_stimuli(*stimuli, **kwargs):
+    fig, ax = plt.subplots(1, len(stimuli), figsize=(kwargs.pop("figsize", None) or (10, 3)))
+    vmin = kwargs.pop("vmin", -1)
+    vmax = kwargs.pop("vmax", 1)
+    cmap = kwargs.pop("cmap", "RdBu")
+    for i, stimulus in enumerate(stimuli):
+        im = ax[i].imshow(stimulus["field"], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
+        plt.colorbar(im, ax=ax[i])
+        ax[i].set_title("Stimulus %d" % i)
+    plt.show()
+    return
+
+
+def show(state, **kwargs):
+    fig, ax = plt.subplots(1, 3, figsize=(kwargs.pop("figsize", None) or (10, 3)))
+    vmin = kwargs.pop("vmin", -1)
+    vmax = kwargs.pop("vmax", 1)
+    cmap = kwargs.pop("cmap", "RdBu")
+    im = ax[0].imshow(state[0], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
+    plt.colorbar(im, ax=ax[0])
+    ax[0].set_title("v")
+    im = ax[1].imshow(state[1], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
+    plt.colorbar(im, ax=ax[1])
+    ax[1].set_title("w")
+    im = ax[2].imshow(state[2], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
+    plt.colorbar(im, ax=ax[2])
+    ax[2].set_title("u")
+    plt.show()
+    return fig, ax
+
+
+def show_grid(states, times, figsize, dt, rows=5):
+    cols = (len(states) % rows) + 1
+    fig, ax = plt.subplots(cols, rows, figsize=figsize)
+    idx = 0
+    for col in range(cols):
+        for row in range(rows):
+            if idx >= len(states):
+                return
+            ax[col, row].imshow(states[idx], cmap="magma", vmin=0, vmax=1,)
+            ax[col, row].set_title("Iter: " + str(times[idx + 1]) + " (%sms)" % convert.units_to_ms(times[idx + 1], dt))
+            idx += 1
+    return fig, ax
