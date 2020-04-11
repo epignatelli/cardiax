@@ -2,6 +2,7 @@ import jax
 import jax.numpy as np
 import matplotlib.pyplot as plt
 import functools
+import math
 from . import params
 from . import convert
 
@@ -188,7 +189,7 @@ def show(state, **kwargs):
 
 
 def show_grid(states, times, figsize, dt, rows=5):
-    cols = (len(states) % rows) + 1
+    cols = math.ceil(len(states) / rows)
     fig, ax = plt.subplots(cols, rows, figsize=figsize)
     idx = 0
     for col in range(cols):

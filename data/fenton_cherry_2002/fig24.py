@@ -12,7 +12,7 @@ d = 0.001  # (cm^2/ms)
 cell_parameters = fk.params.params8()
 
 # infinitesimals
-dx = 0.020  # (cm/units) - Fenton 1998 recommends ~200, 300 micron/gridunit (~0.02, 0.03), smaller dx means finer grid
+dx = 0.015  # (cm/units) - Fenton 1998 recommends ~200, 300 micron/gridunit (~0.02, 0.03), smaller dx means finer grid
 dt = 0.20  # (ms) - Fenton 1998 recommends few hundreds of ms (~0.01, 0.04)
 
 # to computational units
@@ -23,8 +23,8 @@ stripe_size = int(shape[0] / 10)
 protocol1 = fk.stimulus.protocol(start=0, duration=2, period=0)
 s1 = fk.stimulus.rectangular(shape, jax.ops.index[:, -stripe_size:], 1., protocol1)
 
-protocol2 = fk.stimulus.protocol(start=fk.convert.ms_to_units(400, dt), duration=2, period=0)
-s2 = fk.stimulus.rectangular(shape, jax.ops.index[fk.convert.cm_to_units(4, dx):], 1., protocol2)
+protocol2 = fk.stimulus.protocol(start=fk.convert.ms_to_units(350, dt), duration=2, period=0)
+s2 = fk.stimulus.rectangular(shape, jax.ops.index[fk.convert.cm_to_units(5, dx):], 1., protocol2)
 
 stimuli = [s1, s2]
 
