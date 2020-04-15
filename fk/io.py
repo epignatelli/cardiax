@@ -28,10 +28,14 @@ def add_stimuli(hdf5, stimuli):
     hdf5.create_dataset("period", data=[stimuli[i]["period"] for i in range(len(stimuli))])
     return True
         
-        
-def append_states(hdf5, states, start, end):
+
+def add_state(dset, state, t):
+    dset[t] = state
+    return True
+
+def append_states(dset, states, start, end):
     # shape is (t, 3, w, h), where 3 is the tree fk variable
-    hdf5["states"][start:end] = states
+    dset[start:end] = states
     return True
         
     
