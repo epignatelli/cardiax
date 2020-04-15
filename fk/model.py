@@ -90,15 +90,13 @@ def _forward(state, t, t_end, params, diffusion, stimuli, dt, dx):
     state = jax.lax.fori_loop(t, t_end, lambda i, state: step(state, i, params, diffusion, stimuli, dt, dx), state)
     return state
 
-
-def _forward_and_stack(state, t, t_end, params, diffusion, stimuli, dt, dx):
+@functools.partial(jax.jit, static_argnums=(1, 2))
+def _forward_stack(state, t, t_end, params, diffusion, stimuli, dt, dx):
     # iterate
-#     states = np.empty((t_end - t, *(state.shape)))
     def _step(state, i):
         new_state = step(state, i, params, diffusion, stimuli, dt, dx)
         return (new_state, new_state)
     xs = np.arange(t, t_end)
-#     print(xs)
     last_state, states = jax.lax.scan(_step, state, xs)
     return states
 
@@ -192,11 +190,11 @@ def show_grid(states, times, figsize, dt, rows=5):
     cols = math.ceil(len(states) / rows)
     fig, ax = plt.subplots(cols, rows, figsize=figsize)
     idx = 0
-    for col in range(cols):
-        for row in range(rows):
-            if idx >= len(states):
-                return
-            ax[col, row].imshow(states[idx], cmap="magma", vmin=0, vmax=1,)
-            ax[col, row].set_title("Iter: " + str(times[idx + 1]) + " (%sms)" % convert.units_to_ms(times[idx + 1], dt))
-            idx += 1
+    while idx < len(states):
+        for col in range(cols):
+            for row in range(rows):
+                ax[col, row].imshow(states[idx], cmap="magma", vmin=0, vmax=1,)
+                if idx + 1 < len(times):
+                    ax[col, row].set_title("Iter: " + str(times[idx + 1]) + " (%.3fms)" % convert.units_to_ms(times[idx + 1], dt))
+                idx += 1
     return fig, ax
