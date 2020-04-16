@@ -20,8 +20,12 @@ def diffusivity_to_units(d, dt):
     return d / dt
 
 
-def field_to_shape(field, dx):
+def realsize_to_shape(field, dx):
     return (int(field[0] / dx), int(field[1] / dx))
+
+
+def shape_to_realsize(field, dx):
+    return (int(field[0] * dx), int(field[1] * dx))
 
 
 def cm_to_units(value, dx):
