@@ -51,11 +51,11 @@ for i in range(len(checkpoints) - 1):
     state = fk.model._forward(state, checkpoints[i], checkpoints[i + 1], cell_parameters, diffusivity, stimuli, dt, dx)
     fk.io.add_state(states_dset, state, i)
 
-print()
-hdf5.close()
+    print()
+    hdf5.close()
 
 with h5py.File("test.hdf5", "r") as file:
-    states = file["states"][::100]
+    states = file["states"][::int(1/dt) * 10]
     dt = file["params/dt"][...]
     print(file["states"].shape)
 
