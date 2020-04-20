@@ -6,7 +6,7 @@ from . import plot
 from . import io
 
 
-def generate(start, stop, dt, dx, cell_parameters, diffusivity, stimuli, filename):
+def generate(start, stop, dt, dx, cell_parameters, diffusivity, stimuli, filename, reshape=None):
     """
     Generates a new spatio-temporal sequence of fenton-karma simulations.
     Args:
@@ -44,16 +44,17 @@ def generate(start, stop, dt, dx, cell_parameters, diffusivity, stimuli, filenam
     plot.show_stimuli(*stimuli)    
 
     # init storage
-    hdf5 = io.init(filename, shape, n_iter=len(checkpoints), n_stimuli=len(stimuli))
-    io.add_params(hdf5, cell_parameters, diffusivity, dt, dx)
-    io.add_stimuli(hdf5, stimuli)
+    init_size = reshape or shape
+    hdf5 = io.init(filename, init_size, n_iter=len(checkpoints), n_stimuli=len(stimuli))
+    io.add_params(hdf5, cell_parameters, diffusivity, dt, dx, shape=reshape)
+    io.add_stimuli(hdf5, stimuli, shape=reshape)
 
     states_dset = hdf5["states"]
     state = model.init(shape)
     for i in range(len(checkpoints) - 1):
         print("Solving at: %dms/%dms\t\t" % (convert.units_to_ms(checkpoints[i + 1], dt), convert.units_to_ms(checkpoints[-1], dt)), end="\r")
         state = model._forward(state, checkpoints[i], checkpoints[i + 1], cell_parameters, diffusivity, stimuli, dt, dx)
-        io.add_state(states_dset, state, i)
+        io.add_state(states_dset, state, i, shape=reshape)
 
     print()
     hdf5.close()
