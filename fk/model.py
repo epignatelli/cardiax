@@ -77,10 +77,8 @@ def neumann(X):
 def stimulate(t, X, stimuli):
     stimulated = np.zeros_like(X)
     for stimulus in stimuli:
-        active = t > stimulus["start"]
-        active &= t < stimulus["start"] + stimulus["duration"]
-        # for some weird reason checks for cyclic stimuli does not work
-        active &= (np.mod(t - stimulus["start"], stimulus["period"]) < stimulus["duration"])  # cyclic
+        active = np.greater_equal(t, stimulus["start"])
+        active &= (np.mod(stimulus["start"] - t + 1, stimulus["period"]) < stimulus["duration"])
         stimulated = np.where(stimulus["field"] * (active), stimulus["field"], stimulated)
     return np.where(stimulated != 0, stimulated, X)
 
