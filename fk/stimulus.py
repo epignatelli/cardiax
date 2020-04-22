@@ -1,8 +1,10 @@
 import jax
 import jax.numpy as np
+from scipy.ndimage.interpolation import rotate
+import random
 
 
-def protocol(start, duration, period=0):
+def protocol(start, duration, period=None):
     """
     Generates a time protocol to manage the simulus by start time, duration and eventual period.
     Args:
@@ -10,6 +12,8 @@ def protocol(start, duration, period=0):
         duration (int):
         period (int): 
     """
+    if period is None or period == 0:
+        period = 1e9
     return {
         "start": int(start),
         "duration": int(duration),
@@ -53,6 +57,7 @@ def linear(shape, direction, coverage, modulus, protocol):
                          'left', 'right', 'up', or 'down'
         coverage (float): percentage of the field that the wave will cover.
                         It must be between 0 and 1
+        modulus (float): the amplitude of the stimulus in mV
         protocol (Dict[str, int]): the time protocol used to manage the stimuli.
                                    It's values are in simulation units (not ms)
     Returns:
@@ -80,6 +85,41 @@ def linear(shape, direction, coverage, modulus, protocol):
     mask = jax.ops.index_update(mask, stripe, modulus)
     stimulus = {"field": mask}
     return {**stimulus, **protocol}
+
+
+def triangular(shape, direction, angle, coverage, modulus, protocol):
+    """
+    Generates a linear wave at a custom angle.
+    Args:
+        shape (Tuple[int, int]): the shape of the stimulus array in simulation units (not cm)
+        direction (str): Direction of the wave as a string. Can be either:
+                         'left', 'right', 'up', or 'down'        
+        angle (str): Incidence angle of the wave in degrees.
+        coverage (float): percentage of the field that the wave will cover.
+                        It must be between 0 and 1
+        modulus (float): the amplitude of the stimulus in mV
+        protocol (Dict[str, int]): the time protocol used to manage the stimuli.
+                                   It's values are in simulation units (not ms)
+    Returns:
+        (Dict[str, object]): The stimulus as a dictionary containing:
+                             "field": (np.ndarray),
+                             "start": (int),
+                             "duration": (int),
+                             "period": (int)
+    """
+    stim = linear(shape, direction, coverage, modulus, protocol)
+    stim["field"] = rotate(stim["field"], angle=angle, mode="nearest", prefilter=False, reshape=False)
+    return stim
+    
+
+def random_triangular(shape, modulus, protocol):
+    @property
+    def rand(a=None):
+        angle = random.random() * 360
+        stim = triangular(shape, "up", angle, 0.2, modulus, protocol)
+        return stim
+    
+    return rand.fget()
 
 
 def circular(shape, centre, radius, protocol):

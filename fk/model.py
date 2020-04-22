@@ -8,13 +8,46 @@ from . import convert
 from . import plot
 
 
+def forward(shape,
+            checkpoints,
+            cell_parameters,
+            diffusivity,
+            stimuli,
+            dt, dx):
+    """
+    Solves the Fenton-Karma model using second order finite difference and explicit euler update scheme.
+    Neumann conditions are considered at the boundaries.
+    Units are adimensional.
+    Args:
+        shape (Tuple[int, int]): The shape of the finite difference grid
+        checkpoints (iter): An iterable that contains time steps in simulation units, at which pause, and display the state of the system
+        cell_parameters (Dict[string, float]): Dictionary of physiological parameters as illustrated in Fenton, Cherry, 2002.
+        diffusivity (float): Diffusivity of the cardiac tissue
+        stimuli (List[Dict[string, object]]): A list of stimuli to provide energy to the tissue
+        dt (float): time infinitesimal to use in the euler stepping scheme
+        dx (float): space infinitesimal to use in the spatial gradient calculation
+    Returns:
+        (List[jax.numpy.ndarray]): The list of states at each checkpoint
+    """
+    state = init(shape)
+    states = []
+    for i in range(len(checkpoints) - 1):
+        print("Solving at: %dms/%dms\t\t" % (checkpoints[i + 1], checkpoints[-1]), end="\r")
+        state = _forward(state, checkpoints[i], checkpoints[i + 1], cell_parameters, np.ones(shape) * diffusivity, stimuli, dt, dx)
+        plot.show(state)
+        states.append(state[2])
+    return states
+
+
 @functools.partial(jax.jit, static_argnums=0)
 def init(shape):
     v = np.ones(shape)
     w = np.ones(shape)
     u = np.zeros(shape)
     state = (v, w, u)
-    return np.asarray(state)
+    state = np.asarray(state)
+    state = np.reshape(state, (3, 1, 1, *shape))
+    return state
 
 
 @jax.jit
@@ -56,7 +89,7 @@ def step(state, t, params, D, stimuli, dt, dx):
     D_x /= dx
     D_y /= dx
     d_u = D * (u_xx + u_yy) + (D_x * u_x + D_y * u_y) + I_ion
-
+    
     # euler update
     v += d_v * dt
     w += d_w * dt
@@ -64,6 +97,25 @@ def step(state, t, params, D, stimuli, dt, dx):
     return np.asarray((v, w, u))
 
 
+@jax.jit
+def gradient_x(X):
+    print(X.shape)
+    smooth_kernel = np.array([[[[1, 1, 1], [1, 1, 1], [1, 1, 1]]]], dtype="float32") / 9  # replace with gaussian
+    grad_kernel = np.array([[[[1, 0, -1], [1, 0, -1], [1, 0, -1]]]], dtype="float32")
+    grad = jax.lax.conv(X, smooth_kernel, window_strides=(1, 1), padding="SAME")
+    grad = jax.lax.conv(grad, grad_kernel, window_strides=(1, 1), padding="SAME")
+    return grad / 6
+
+    
+@jax.jit
+def gradient_y(X):
+    smooth_kernel = np.array([[[[1, 1, 1], [1, 1, 1], [1, 1, 1]]]], dtype="float32") / 9  # replace with gaussian
+    grad_kernel = np.array([[[[1, 1, 1], [0, 0, 0], [-1, -1, -1]]]], dtype="float32")
+    grad = jax.lax.conv(X, smooth_kernel, window_strides=(1, 1), padding="SAME")
+    grad = jax.lax.conv(grad, grad_kernel, window_strides=(1, 1), padding="SAME")
+    return grad / 6
+    
+    
 @jax.jit
 def neumann(X):
     X = jax.ops.index_update(X, jax.ops.index[0], X[1])
@@ -89,6 +141,7 @@ def _forward(state, t, t_end, params, diffusion, stimuli, dt, dx):
     state = jax.lax.fori_loop(t, t_end, lambda i, state: step(state, i, params, diffusion, stimuli, dt, dx), state)
     return state
 
+
 @functools.partial(jax.jit, static_argnums=(1, 2))
 def _forward_stack(state, t, t_end, params, diffusion, stimuli, dt, dx):
     # iterate
@@ -98,38 +151,3 @@ def _forward_stack(state, t, t_end, params, diffusion, stimuli, dt, dx):
     xs = np.arange(t, t_end)
     last_state, states = jax.lax.scan(_step, state, xs)
     return states
-
-
-def forward(tissue_size=None,
-            cell_parameters=None,
-            diffusion=0.001,
-            stimuli=[],
-            dt=0.01,
-            dx=0.025,
-            end_time=100,
-            checkpoints=None):
-    if tissue_size is None:
-        tissue_size = (12, 12)
-    shape = convert.field_to_shape(field_size, dx)
-    
-    n_iter = convert.ms_to_units(end_time, dt)
-
-    if cell_parameters is None:
-        cell_parameters = params.params_test()
-
-    diffusion = np.ones(shape) * diffusion
-    
-    if checkpoints is None:
-        checkpoints = [0, n_iter]
-    elif isinstance(checkpoint, list):
-        checkpoints = [convert.ms_to_units(ck, dt) for ck in checkpoints]
-
-    print("Starting simulation with %s dof for %dms (%d iterations with dt %4f)" % (field_size, end_time, n_iter, dt) )
-    print("Checkpointing at", checkpoints)
-
-    state = model.init(shape)
-    for i in range(len(checkpoints) - 1):
-        state = model._forward(state, checkpoints[i], checkpoints[i + 1], cell_parameters, np.ones(shape) * d, stimuli, dt, dx)  # dt = 10000
-        print(checkpoints[i + 1])
-        plot.show(state)
-    return state

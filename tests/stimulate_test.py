@@ -8,9 +8,9 @@ def test_stimulate():
     A = fk.stimulus.protocol(start=0, duration=2, period=50)
     A = fk.stimulus.linear(shape, direction="up", coverage=.05, modulus=1., protocol=A)
     B = fk.stimulus.protocol(start=10, duration=2, period=50)
-    B = fk.stimulus.linear(shape, direction="left", coverage=0.5, modulus=1., protocol=B)
+    B = fk.stimulus.triangular(shape, direction="left", angle=30, coverage=0.5, modulus=1., protocol=B)
     C = fk.stimulus.protocol(start=30, duration=2, period=1000000)
-    C = fk.stimulus.linear(shape, direction="right", coverage=0.5, modulus=1., protocol=C)    
+    C = fk.stimulus.rectangular(shape, (50, 50), (1, 1), modulus=1., protocol=C)    
     stimuli = [A, B, C]
     
     A_is_active_at = set([0, 1, 50, 51, 100, 101, 150, 151, 200, 201, 250, 251])
