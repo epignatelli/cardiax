@@ -19,7 +19,7 @@ def show_stimuli(*stimuli, **kwargs):
 
 
 def show(state, **kwargs):
-    fig, ax = plt.subplots(1, 3, figsize=(kwargs.pop("figsize", None) or (10, 3)))
+    fig, ax = plt.subplots(1, 3, figsize=(kwargs.pop("figsize", None) or (15, 5)))
     vmin = kwargs.pop("vmin", -1)
     vmax = kwargs.pop("vmax", 1)
     cmap = kwargs.pop("cmap", "RdBu")

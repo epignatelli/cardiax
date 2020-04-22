@@ -46,7 +46,6 @@ def init(shape):
     u = np.zeros(shape)
     state = (v, w, u)
     state = np.asarray(state)
-    state = np.reshape(state, (3, 1, 1, *shape))
     return state
 
 
@@ -78,17 +77,20 @@ def step(state, t, params, D, stimuli, dt, dx):
     I_ion = -(J_fi + J_so + J_si) / params["Cm"]
 
     # voltage01
-    u_x, u_y = np.gradient(u)
+#     u_x, u_y = np.gradient(u)
+    u_x, u_y = gradient(u, 0), gradient(u, 1)
     u_x /= dx
     u_y /= dx
-    u_xx = np.gradient(u_x, axis=0)
-    u_yy = np.gradient(u_y, axis=1)
+#     u_xx = np.gradient(u_x, axis=0)
+#     u_yy = np.gradient(u_y, axis=1)
+    u_xx = gradient(u_x, 0)
+    u_yy = gradient(u_y, 1)
     u_xx /= dx
     u_yy /= dx
-    D_x, D_y = np.gradient(D)
-    D_x /= dx
-    D_y /= dx
-    d_u = D * (u_xx + u_yy) + (D_x * u_x + D_y * u_y) + I_ion
+#     D_x, D_y = np.gradient(D)
+#     D_x /= dx
+#     D_y /= dx
+    d_u = D * (u_xx + u_yy) + I_ion
     
     # euler update
     v += d_v * dt
@@ -97,25 +99,20 @@ def step(state, t, params, D, stimuli, dt, dx):
     return np.asarray((v, w, u))
 
 
-@jax.jit
-def gradient_x(X):
-    print(X.shape)
-    smooth_kernel = np.array([[[[1, 1, 1], [1, 1, 1], [1, 1, 1]]]], dtype="float32") / 9  # replace with gaussian
-    grad_kernel = np.array([[[[1, 0, -1], [1, 0, -1], [1, 0, -1]]]], dtype="float32")
-    grad = jax.lax.conv(X, smooth_kernel, window_strides=(1, 1), padding="SAME")
-    grad = jax.lax.conv(grad, grad_kernel, window_strides=(1, 1), padding="SAME")
-    return grad / 6
+@functools.partial(jax.jit, static_argnums=1)
+def gradient(a, axis):
+    sliced = functools.partial(jax.lax.slice_in_dim, a, axis=axis)
+    a_grad = jax.numpy.concatenate((
+        # 3th order edge
+        ((-11/6) * sliced(0, 2) + 3 * sliced(1, 3) - (3/2) * sliced(2, 4) + (1/3) * sliced(3, 5)),
+        # 4th order inner
+        ((1/12) * sliced(None, -4) - (2/3) * sliced(1, -3) + (2/3) * sliced(3, -1) - (1/12) * sliced(4, None)),
+#         (sliced(2, None) - sliced(None, -2)) * 0.5,
+        # 3th order edge
+        ((-1/3) * sliced(-5, -3) + (3/2) * sliced(-4, -2) - 3 * sliced(-3, -1) + (11/6) * sliced(-2, None))
+    ), axis)
+    return a_grad
 
-    
-@jax.jit
-def gradient_y(X):
-    smooth_kernel = np.array([[[[1, 1, 1], [1, 1, 1], [1, 1, 1]]]], dtype="float32") / 9  # replace with gaussian
-    grad_kernel = np.array([[[[1, 1, 1], [0, 0, 0], [-1, -1, -1]]]], dtype="float32")
-    grad = jax.lax.conv(X, smooth_kernel, window_strides=(1, 1), padding="SAME")
-    grad = jax.lax.conv(grad, grad_kernel, window_strides=(1, 1), padding="SAME")
-    return grad / 6
-    
-    
 @jax.jit
 def neumann(X):
     X = jax.ops.index_update(X, jax.ops.index[0], X[1])
