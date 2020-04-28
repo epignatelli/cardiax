@@ -1,0 +1,53 @@
+{
+    "field_size": [12, 12],
+    "d": 0.001,
+    "params": "params1e",
+    "dt": 0.01,
+    "dx": 0.01,
+    "start": 0,
+    "stop": 20000,
+    "stimuli": [
+    {
+        "type": "triangular",
+        "shape": [1200, 1200],
+        "direction": "right",
+        "angle": 15,
+        "coverage": 0.1,
+        "modulus": 1.0,
+        "protocol": 
+        {
+            "start": 0,
+            "duration": 2,
+            "period": null
+        }
+    },
+    {
+        "type": "triangular",
+        "shape": [1200, 1200],
+        "direction": "down",
+        "angle":25,
+        "coverage": 0.3,
+        "modulus": 1.0,
+        "protocol": 
+        {
+            "start": 26000,
+            "duration": 2,
+            "period": null
+        }                
+    },
+    {
+        "type": "triangular",
+        "shape": [1200, 1200],
+        "direction": "left",
+        "angle": 60,
+        "coverage": 0.2,
+        "modulus": 1.0,
+        "protocol": 
+        {
+            "start": 110000,
+            "duration": 2,
+            "period": null
+        }                
+    }        
+    ]
+}

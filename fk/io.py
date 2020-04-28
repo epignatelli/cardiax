@@ -58,8 +58,33 @@ def load(path, dataset, start, end, step=None):
         return [file[dset][start:end:step] for dset in file]
     
     
-def load_slice(dset, start, end, step):
-    return [file[dset][start:end:step] for dset in file]
+def load_state(dset, start, end, step):
+    return dset[start:end:step]
+    
+    
+def load_stimuli(file):
+    stimuli = []
+    for i in range(len(file["field"])):
+        s = {}
+        s["field"] = file["field"][i]
+        s["start"] = file["start"][i]
+        s["duration"] = file["duration"][i]
+        s["period"] = file["period"][i]
+        stimuli.append(s)
+    return stimuli
+
+
+def load_params(filepath):
+    params = {}
+    D = None
+    with h5py.File(filepath, "r") as file:
+        stored_params = file["params"]
+        for key in stored_params:
+            if key == "D":
+                D = stored_params[key][...]
+            else:
+                params[key] = stored_params[key][...]
+    return params, D
     
     
 def imresize(array, shape):

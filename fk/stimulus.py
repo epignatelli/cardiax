@@ -2,7 +2,7 @@ import jax
 import jax.numpy as np
 from scipy.ndimage.interpolation import rotate
 import random
-
+from . import convert
 
 def protocol(start, duration, period=None):
     """
@@ -118,7 +118,18 @@ def random_triangular(shape, modulus, protocol):
         angle = random.random() * 360
         stim = triangular(shape, "up", angle, 0.2, modulus, protocol)
         return stim
-    
+    return rand.fget()
+
+
+def random_rectangular(shape, dx, modulus, protocol):
+    @property
+    def rand(key):
+        x1 = random.random() * (shape[0] - 1)
+        x2 = random.random() * (shape[1] - 1)
+        centre = (x1, x2)
+        size = convert.realsize_to_shape((1, 1), dx)
+        stim = rectangular(shape, centre, size, modulus, protocol)
+        return stim
     return rand.fget()
 
 
