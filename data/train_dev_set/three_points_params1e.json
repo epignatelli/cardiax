@@ -1,0 +1,64 @@
+{
+    "field_size": [12, 12],
+    "d": 0.001,
+    "params": "params1e",
+    "dt": 0.01,
+    "dx": 0.01,
+    "start": 0,
+    "stop": 20000,
+    "stimuli": [
+    {
+        "type": "rectangular",
+        "shape": [1200, 1200],
+        "centre": [200, 200],
+        "size": [100, 100],
+        "modulus": 0.8,
+        "protocol": 
+        {
+            "start": 0,
+            "duration": 2,
+            "period": null
+        }
+    },
+    {
+        "type": "rectangular",
+        "shape": [1200, 1200],
+        "centre": [500, 500],
+        "size": [100, 100],
+        "modulus": 0.8,
+        "protocol": 
+        {
+            "start": 27000,
+            "duration": 2,
+            "period": null
+        }
+    },
+    {
+        "type": "rectangular",
+        "shape": [1200, 1200],
+        "centre": [750, 250],
+        "size": [100, 100],
+        "modulus": 0.8,
+        "protocol": 
+        {
+            "start": 52000,
+            "duration": 2,
+            "period": null
+        }
+    },
+    {
+        "type": "triangular",
+        "shape": [1200, 1200],
+        "direction": "down",
+        "angle": 30,
+        "coverage": 0.4,
+        "modulus": 1.0,
+        "protocol": 
+        {
+            "start": 80000,
+            "duration": 2,
+            "period": null
+        }
+    }        
+    ]
+}
