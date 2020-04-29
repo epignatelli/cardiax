@@ -6,5 +6,5 @@ setup(name='Fenton-Karma',
       author='Eduardo Pignatelli',
       author_email='edu.pignatelli@gmail.com',
       url='https://github.com/epignatelli/fenton_karma_jax',
-      packages=["fk", "tests", "data"],
+      packages=["fk", "tests", "data", "deepexcite"],
      )
