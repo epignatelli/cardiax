@@ -51,3 +51,12 @@ def stimuli_to_units(stimuli, dx, dt):
         stimuli[i]["duration"] = ms_to_units(stimuli[i]["duration"], dt)
         stimuli[i]["period"] = ms_to_units(stimuli[i]["period"], dt)
     return stimuli
+
+
+def u_to_V(u, V0=-85, Vfi=15):
+    return ((Vfi - V0) * u) + V0
+
+
+def V_to_u(V, V0=-85, Vfi=15):
+    return (V - V0)/(Vfi - V0)
+    
