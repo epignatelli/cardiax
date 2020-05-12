@@ -107,7 +107,6 @@ def gradient(a, axis):
         ((-11/6) * sliced(0, 2) + 3 * sliced(1, 3) - (3/2) * sliced(2, 4) + (1/3) * sliced(3, 5)),
         # 4th order inner
         ((1/12) * sliced(None, -4) - (2/3) * sliced(1, -3) + (2/3) * sliced(3, -1) - (1/12) * sliced(4, None)),
-#         (sliced(2, None) - sliced(None, -2)) * 0.5,
         # 3th order edge
         ((-1/3) * sliced(-5, -3) + (3/2) * sliced(-4, -2) - 3 * sliced(-3, -1) + (11/6) * sliced(-2, None))
     ), axis)

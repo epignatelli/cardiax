@@ -1,6 +1,12 @@
 import jax
 import jax.numpy as np
+import numpy as onp
+import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from mpl_toolkits.mplot3d import Axes3D
+import IPython
+from IPython.display import HTML
 import math
 from . import convert
 
@@ -49,3 +55,67 @@ def show_grid(states, times=[], figsize=None, rows=5):
                     ax[col, row].set_title("Iter: " + str(iteration) + " (%.3fms)" % times[idx + 1])
                 idx += 1
     return fig, ax
+
+
+def show3d(state, rcount=200, ccount=200, zlim=None, figsize=None):
+    fig = plt.figure(figsize=figsize)
+    ax = fig.add_subplot(projection="3d")
+    r = list(range(0, len(state)))
+    x, y = np.meshgrid(r, r)
+    plot = ax.plot_surface(x, y, state, rcount=rcount, ccount=ccount, cmap="magma")
+    cbar = fig.colorbar(plot)
+    cbar.set_label("mV", rotation=0)
+    if zlim is not None:
+        ax.set_zlim3d(zlim[0], zlim[1])
+    ax.set_xlabel("x [mm]")
+    ax.set_ylabel("y [mm]")
+    ax.set_zlabel("Voltage [mV]")
+    ax.set_xticks([7, 7])
+    fig.tight_layout()
+    return fig, ax
+
+
+def animate(states, times=None, figsize=None, channel=None, vmin=0, vmax=1):
+    backend = matplotlib.get_backend()
+    matplotlib.use("nbAgg")
+    fig, ax = plt.subplots(1, 1, figsize=figsize)
+    
+    def init():
+        im = ax.imshow(states[0, channel].squeeze(), animated=True, cmap="magma", vmin=vmin, vmax=vmax)
+        cbar = fig.colorbar(im)
+        cbar.set_label("mV", rotation=0)
+        return [im]
+
+    def update(iteration):
+        print("Rendering {}\t".format(iteration + 1), end="\r")
+        im = ax.imshow(states[iteration, channel].squeeze(), animated=True, cmap="magma", vmin=vmin, vmax=vmax)
+        if times is not None:
+            ax.set_title("t: %d" % times[iteration])
+        return [ax]
+
+    animation = FuncAnimation(fig, update, frames=range(len(states)), init_func=init, blit=True)
+    matplotlib.use(backend)
+    return HTML(animation.to_html5_video())
+
+
+def animate3d(states, times=None, figsize=None):
+    backend = matplotlib.get_backend()
+    matplotlib.use("nbAgg")
+    fig, ax = plt.subplots(1, 1, figsize=figsize)
+    
+    def init():
+        im = show3d(states[0, channel].squeeze(), animated=True, cmap="magma", vmin=0, vmax=1)
+        cbar = fig.colorbar(im)
+        cbar.set_label("mV", rotation=0)
+        return [im]
+
+    def update(iteration):
+        print("Rendering {}\t".format(iteration + 1), end="\r")
+        im = ax.imshow(states[iteration, channel].squeeze(), animated=True, cmap="magma", vmin=0, vmax=1)
+        if times is not None:
+            ax.set_title("t: %d" % times[iteration])
+        return [ax]
+
+    animation = FuncAnimation(fig, update, frames=range(len(states)), init_func=init, blit=True)
+    matplotlib.use(backend)
+    return HTML(animation.to_html5_video())
