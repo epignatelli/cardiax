@@ -1,9 +1,16 @@
 ![build](https://github.com/epignatelli/fenton_karma_jax/workflows/build/badge.svg)
 
-# Fenton-Karma model (three currents)
-
+## Fenton-Karma model
 
 This repo provides a python implementation of the FK model described in [Multiple mechanisms of spiral wave breakup in a model of cardiac electrical activity](https://aip.scitation.org/doi/10.1063/1.1504242), using [JAX](https://github.com/google/jax)
+
+The code and notebook provided in this repository is first generation code created for the purposes of experimentation in methods development. It is provided for the purposes of reproducible research into the scalability of the JAX framework for implementing numeric solvers to a 2D solver of an approximate Fenton-Karma model. It is intended for educational purposes. It is not intended for diagnostic use or patient planning in any way.
+
+## Acknowledgements
+We acknowledge the support of the Rosetrees Interdisciplinary Award, the wider ElectroCardioMaths Group (led by Prof Nick Peters). We thank Dr. Chris Cantwell lecturer at the Imperial College, Department of Auronautics; Dr. Anil Bharath, Professor at the Imperial College, Department of Bioengineering; Dr. Marta Varela, Research Fellow at the National Heart & Lung Institute.
+
+
+
 
 
 ## Performance analysis
