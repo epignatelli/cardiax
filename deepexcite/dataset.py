@@ -5,14 +5,17 @@ import fk
 
 
 class FkDataset():
-    def __init__(self, root, n_frames_in=5, n_frames_out=10, step=1, keys=None):
+    def __init__(self, root, n_frames_in=5, n_frames_out=10, step=1,
+                 keys=None, transforms=None, squeeze=False):
         self.root = root
         self.n_frames_in = n_frames_in
         self.n_frames_out = n_frames_out
         self.n_frames = n_frames_in + n_frames_out
         self.step = step
+        self.transforms = transforms
+        self.squeeze = squeeze
         
-        filenames = [os.path.join(root, name) for name in sorted(os.listdir(root))]
+        filenames = [os.path.join(root, name) for name in sorted(os.listdir(root)) if name.endswith("hdf5")]
         if keys is not None:
             filenames = [name for name in filenames 
                  if os.path.basename(name) in keys ]
@@ -45,7 +48,16 @@ class FkDataset():
         end = start + self.n_frames_in + self.n_frames_out
         if end > len(self):
             return None
-        return self.datasets[dataset_idx][start:end:self.step]
+    
+        sample = self.datasets[dataset_idx][start:end:self.step]["states"]
+
+        if self.transforms is not None:
+            sample = self.transforms(sample)
+
+        if self.squeeze:
+            sample = torch.squeeze(sample)
+            
+        return sample
 
     def close(self):
         for dataset in self.datasets:
@@ -62,10 +74,10 @@ class Simulation():
         self.shape = self.states.shape[-2:]
     
     def __getitem__(self, idx):
-        states = self.states[idx]
+        states = torch.tensor(self.states[idx])
         unstimulated = torch.zeros(self.states.shape[-2:])
         stimuli = torch.stack([self.stimulus_at_t(t) for t in range(idx.start, idx.stop, idx.step)])
-        return states, stimuli
+        return {"states": states, "stimuli": stimuli}
     
     def __len__(self):
         return len(self.states)

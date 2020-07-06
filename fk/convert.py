@@ -58,5 +58,5 @@ def u_to_V(u, V0=-85, Vfi=15):
 
 
 def V_to_u(V, V0=-85, Vfi=15):
-    return (V - V0)/(Vfi - V0)
+    return (V - V0) / (Vfi - V0)
     
