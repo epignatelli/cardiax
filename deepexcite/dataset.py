@@ -1,4 +1,5 @@
 import os 
+import numpy as np
 import h5py
 import torch
 import fk
@@ -19,7 +20,7 @@ class FkDataset():
         if keys is not None:
             filenames = [name for name in filenames 
                  if os.path.basename(name) in keys ]
-        self.datasets = [Simulation(filename) for filename in filenames]
+        self.datasets = [Simulation(filename, n_frames_in, n_frames_out) for filename in filenames]
         self.cumulative_sizes = self.cumsum(self.datasets)
         
     @staticmethod
@@ -49,8 +50,9 @@ class FkDataset():
         if end > len(self):
             return None
     
-        sample = self.datasets[dataset_idx][start:end:self.step]["states"]
-
+        sample = np.array(self.datasets[dataset_idx][start:end:self.step])#["states"]
+        sample = torch.as_tensor(sample)
+        
         if self.transforms is not None:
             sample = self.transforms(sample)
 
@@ -64,26 +66,35 @@ class FkDataset():
             dataset.states.file.close()
     
 class Simulation():
-    def __init__(self, filename):
+    def __init__(self, filename, in_frames=1, out_frames=0, step=1):
+        self.in_frames = in_frames
+        self.out_frames = out_frames
+        self.step = step
+        
         self.filename = filename
-        file = h5py.File(filename, "r")
-        self.states = file["states"]
+        file = h5py.File(filename, "r") 
+        self.states = file["states_256"]
+        
         self.stimuli = fk.io.load_stimuli(file)
         for i in range(len(self.stimuli)):
-            self.stimuli[i]["field"] = torch.as_tensor(self.stimuli[i]["field"])
+            self.stimuli[i]["field"] = np.array(self.stimuli[i]["field"])
         self.shape = self.states.shape[-2:]
     
     def __getitem__(self, idx):
-        states = torch.tensor(self.states[idx])
-        unstimulated = torch.zeros(self.states.shape[-2:])
-        stimuli = torch.stack([self.stimulus_at_t(t) for t in range(idx.start, idx.stop, idx.step)])
-        return {"states": states, "stimuli": stimuli}
+        if isinstance(idx, slice):
+            idx = slice(idx.start, idx.start + (self.in_frames + self.out_frames) * self.step, self.step)
+            return np.array(self.states[idx])
+        states = np.array(self.states[idx: idx + (self.in_frames + self.out_frames) * self.step: self.step])
+        return states
+#         unstimulated = np.zeros(self.states.shape[-2:])
+#         stimuli = np.stack([self.stimulus_at_t(t) for t in range(idx.start, idx.stop, idx.step)])
+#         return {"states": states, "stimuli": stimuli}
     
     def __len__(self):
-        return len(self.states)
+        return len(self.states) - (self.in_frames + self.out_frames) * self.step
     
     def stimulus_at_t(self, t):
-        stimulated = torch.zeros(self.shape)
+        stimulated = np.zeros(self.shape)
         for stimulus in self.stimuli:
             active = t >= stimulus["start"]
             active &= ((stimulus["start"] - t + 1) % stimulus["period"]) < stimulus["duration"]
