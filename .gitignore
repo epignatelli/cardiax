@@ -1,3 +1,6 @@
+# logs
+deepexcite/lightning_logs/
+
 # data
 *.hdf5
 
