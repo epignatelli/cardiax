@@ -63,7 +63,7 @@ class ConvTransposeBlock3D(nn.Module):
 class SoftAttention3D(nn.Module):
     def __init__(self, in_channels):
         super().__init__()
-        self.project = nn.Conv3d(in_channels, in_channels, kernel_size=(1, 1, 1))
+        self.project = nn.Conv3d(in_channels, in_channels, kernel_size=(3, 1, 1))
 
     def forward(self, x):
         return torch.sigmoid(self.project(x))

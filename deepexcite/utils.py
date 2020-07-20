@@ -2,6 +2,8 @@ import torch
 from torch import nn
 
 
+DEBUG = False
+
 def log(*m):
     if DEBUG:
         print(*m)
@@ -16,7 +18,7 @@ def gradient(x):
     dx[..., :, -1] = 0
     dy[..., -1, :] = 0
     log(dx.shape, dy.shape)
-    return torch.abs(dx) + torch.abs(dy)        
+    return dx, dy   
         
     
 def grad_mse_loss(gen_frames, gt_frames, reduction="sum"):
