@@ -8,7 +8,7 @@ import torchvision.transforms as t
 from torch.utils.data import DataLoader
 from torchvision.utils import make_grid as mg
 import utils
-from utils import log, grad_mse_loss, Elu, Downsample, Normalise
+from utils import log, grad_mse_loss, time_grad_loss, Elu, Downsample, Normalise, Rotate, Flip
 import random
 
 
@@ -42,11 +42,16 @@ class ConvBlock3D(nn.Module):
 
 
 class ConvTransposeBlock3D(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, pooling=2, attention=True):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, pooling=2, attention=None):
         super().__init__()
         self.features = ConvBlock3D(in_channels, out_channels, kernel_size=3, padding=padding, pooling=0)
         self.upsample = nn.Upsample(scale_factor=(1, pooling, pooling))
-        self.attention = SoftAttention3D(in_channels) if attention else nn.Identity()
+        if attention is None:
+            self.attention = nn.Identity()
+        elif "self" in attention :
+            self.attention = SelfAttention3D(in_channels)
+        elif "soft" in attention:
+            self.attention = SoftAttention3D(in_channels)
 
     def forward(self, x, skip_connection):
         log("going up")
@@ -81,16 +86,44 @@ class SelfAttention3D(nn.Module):
         key = self.key(x)
         value = self.value(x)
         attention = torch.matmul(torch.transpose(query, -2, -1), key)
-        attention = torch.softmax(attention, dim=-3)
+        attention = torch.softmax(attention, dim=1)
         attention = torch.matmul(attention, value)
         return attention
+
+
+class Inference(LightningModule):
+    def __init__(self, input_size, hidden_size=512):
+        self.features = nn.Sequential([ConvBlock3D(8, 16, 6, 2), ConvBlock3D(16, 32, 6, 2)])
+        self.mu = nn.Linear(input_size, hidden_size)
+        self.logvar = nn.Linear(input_size, hidden_size)
+        
+    def reparameterise(self, mu, logvar):	
+        std = logvar.mul(0.5).exp_()
+        esp = torch.randn_like(mu, device=mu.device)
+        z = mu + std * esp
+        return z
+    
+    def get_loss(self, mu, logvar):
+        kld = - 0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+        return kld
+    
+    def forward(self, x):
+        x = self.features(x)
+        log("inference features", x.shape)
+        latent = self.flatten(x)
+        mu = self.mu(latent)
+        logvar = self.logvar(latent)
+        z = self.reparameterise(mu, logvar)
+        return z
+        
     
 class Unet3D(LightningModule):
-    def __init__(self, channels, frames_in, frames_out, scale_factor=4, loss_weights={}, attention=False):
+    def __init__(self, channels, frames_in, frames_out, step, scale_factor=4, loss_weights={}, attention="self"):
         super().__init__()
         self.save_hyperparameters()
         self.frames_in = frames_in
         self.frames_out = frames_out
+        self.step = step
         self.loss_weights = loss_weights
         
         down_channels = [frames_in] + channels if frames_in is not None else channels
@@ -131,13 +164,15 @@ class Unet3D(LightningModule):
         return sum(p.numel() for p in self.parameters())
     
     def get_loss(self, y_hat, y):
-        rmse = torch.sqrt(nn.functional.mse_loss(y_hat, y, reduction="sum") / y_hat.size(0) / y_hat.size(1))
-        rmse_grad = torch.sqrt(grad_mse_loss(y_hat, y, reduction="sum") / y_hat.size(0) / y_hat.size(1))
-        rmse = rmse * self.loss_weights.get("rmse", 1.)
-        rmse_grad = rmse_grad * self.loss_weights.get("rmse_grad", 1.)
-        energy = total_energy_loss(y_hat, y)
+        recon = torch.sqrt(nn.functional.mse_loss(y_hat, y, reduction="sum") / y_hat.size(0) / y_hat.size(1))
+        recon = recon * self.loss_weights.get("recon", 1.)
+        space_grad = torch.sqrt(grad_mse_loss(y_hat, y, reduction="sum") / y_hat.size(0) / y_hat.size(1))
+        space_grad = space_grad * self.loss_weights.get("space_grad", 1.)
+        time_grad = time_grad_loss(y_hat, y) / y_hat.size(0) / y_hat.size(1)
+        time_grad = time_grad * self.loss_weights.get("time_grad", 1.)
+        energy = total_energy_loss(y_hat, y) / y_hat.size(0) / y_hat.size(1)
         energy = energy * self.loss_weights.get("energy", 1.)
-        return {"rmse": rmse, "rmse_grad": rmse_grad, "energy": energy}
+        return {"recon": recon, "space_grad": space_grad, "time_grad": time_grad, "energy": energy}
     
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=0.001)
@@ -154,51 +189,68 @@ class Unet3D(LightningModule):
         tensorboard_logs = loss
         
         i = random.randint(0, y_hat.size(0) - 1)
-        self.logger.experiment.add_image("w_pred", mg(y_hat[i, :, 0].unsqueeze(1), nrow=5, normalize=True), self.current_epoch)
-        self.logger.experiment.add_image("w_truth", mg(y[i, :, 0].unsqueeze(1), nrow=5, normalize=True), self.current_epoch)
-        self.logger.experiment.add_image("v_pred", mg(y_hat[i, :, 1].unsqueeze(1), nrow=5, normalize=True), self.current_epoch)
-        self.logger.experiment.add_image("v_truth", mg(y[i, :, 1].unsqueeze(1), nrow=5, normalize=True), self.current_epoch)
-        self.logger.experiment.add_image("u_pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=5, normalize=True), self.current_epoch)
-        self.logger.experiment.add_image("u_truth", mg(y[i, :, 2].unsqueeze(1), nrow=5, normalize=True), self.current_epoch)
+        nrow, normalise = 10, True
+        self.logger.experiment.add_image("w_input", mg(x[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("v_input", mg(x[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("u_input", mg(x[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)        
+        self.logger.experiment.add_image("w_pred", mg(y_hat[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("w_truth", mg(y[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("v_pred", mg(y_hat[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("v_truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("u_pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("u_truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         return {"loss": sum(loss.values()), "log": tensorboard_logs}
 
         
 def collate(batch):
-    return torch.stack([torch.as_tensor(t) for t in batch], 0)
+    x = torch.stack([torch.as_tensor(t) for t in batch], 0)
+    
+#     # random rotate
+    if random.random() > 0.5:
+        x = torch.rot90(x, k=random.randint(1, 3), dims=(-2, -1))
+
+#     # random flip
+    if random.random() > 0.5:
+        x = torch.flip(x, dims=(random.randint(-2, -1), ))
+    return x
 
 
 if __name__ == "__main__":
     from argparse import ArgumentParser
     
     parser = ArgumentParser()
-    parser.add_argument('--debug', default=False, action="store_true")
-    parser.add_argument('--root', type=str, default="/media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/")
-    parser.add_argument('--filename', type=str, default="/media/SSD1/epignatelli/train_dev_set/spiral_params5.hdf5")
+    parser.add_argument('--frames_in', required=True, type=int)
+    parser.add_argument('--frames_out', required=True, type=int)
+    parser.add_argument('--step', required=True, type=int)
     parser.add_argument('--batch_size', type=int, default=32)
-    parser.add_argument('--frames_in', type=int, default=5)
-    parser.add_argument('--frames_out', type=int, default=10)
-    parser.add_argument('--step', type=int, default=1)
     parser.add_argument('--input_size', type=int, default=256)
     parser.add_argument('--scale_factor', type=int, default=4)
     parser.add_argument('--channels', type=int, nargs='+', default=[16, 32, 64, 128])
-    parser.add_argument('--attention', default=False, action="store_true")
-    parser.add_argument('--rmse', type=float, default=1.)
-    parser.add_argument('--rmse_grad', type=float, default=1.)
-    parser.add_argument('--energy_weight', type=float, default=1.)
+    parser.add_argument('--attention', type=str, default=None)
+    
+    parser.add_argument('--debug', default=False, action="store_true")
+    parser.add_argument('--root', type=str, default="/media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/")
+    parser.add_argument('--filename', type=str, default="/media/SSD1/epignatelli/train_dev_set/spiral_params5.hdf5")
     parser.add_argument('--gpus', type=str, default="0")
     parser.add_argument('--log_interval', type=int, default=10)
+    
+    parser.add_argument('--recon', type=float, default=1.)
+    parser.add_argument('--space_grad', type=float, default=1.)
+    parser.add_argument('--time_grad', type=float, default=1.)
+    parser.add_argument('--energy', type=float, default=1.)
+    
     
     args = parser.parse_args()    
     utils.DEBUG = args.debug
     
-    model = Unet3D(args.channels, args.frames_in, args.frames_out, scale_factor=args.scale_factor,
-                   loss_weights={"rmse": args.rmse, "rmse_grad": args.rmse_grad, "energy": args.energy_weight}, attention=args.attention)
+    model = Unet3D(args.channels, args.frames_in, args.frames_out, args.step, scale_factor=args.scale_factor,
+                   loss_weights={"recon": args.recon, "space_grad": args.space_grad, "energy": args.energy, "time_grad": args.time_grad}, attention=args.attention)
     log(model)
     log("parameters: {}".format(model.parameters_count()))
-        
-    fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, squeeze=True, keys=["spiral_params3.hdf5", "heartbeat_params3.hdf5", "three_points_params3.hdf5"])
+    
+    fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=Normalise(), squeeze=True, keys=["spiral_params3.hdf5", "heartbeat_params3.hdf5", "three_points_params3.hdf5"])
 #     fkset = Simulation(args.filename, args.frames_in, args.frames_out, args.step, transform=Normalise())
     loader = DataLoader(fkset, batch_size=args.batch_size, collate_fn=collate, shuffle=True, num_workers=3)
-    trainer = Trainer.from_argparse_args(parser, fast_dev_run=args.debug, row_log_interval=args.log_interval)
+    trainer = Trainer.from_argparse_args(parser, fast_dev_run=args.debug, row_log_interval=args.log_interval, default_root_dir="lightning_logs/unet3d")
     trainer.fit(model, train_dataloader=loader)
     

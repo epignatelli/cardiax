@@ -98,9 +98,9 @@ class ConvTransposeBlock2D(nn.Module):
         return out
 
     
-class UNet2D(LightningModule):
+class Autoencoder(LightningModule):
     def __init__(self, channels, first_channel, last_channel, scale_factor=4):
-        super(UNet2D, self).__init__()
+        super(Autoencoder, self).__init__()
         self.frames_in = first_channel
         self.frames_out = last_channel
         

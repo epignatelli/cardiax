@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+import random
 
 
 DEBUG = False
@@ -8,6 +9,20 @@ def log(*m):
     if DEBUG:
         print(*m)
 
+        
+def time_grad(x):
+    log("time grad", x.shape)
+    past = x[:, :-1]
+    future = x[:, 1:]
+    return future - past
+
+
+def time_grad_loss(y_hat, y, reduction="sum"):
+    time_grad_y_hat = time_grad(y_hat)
+    time_grad_y = time_grad(y)
+    return nn.functional.mse_loss(time_grad_y_hat, time_grad_y, reduction=reduction)
+
+        
 def gradient(x):
     log("grad", x.shape)
     left = x
@@ -22,8 +37,10 @@ def gradient(x):
         
     
 def grad_mse_loss(gen_frames, gt_frames, reduction="sum"):
-    grad_pred = gradient(gen_frames)
-    grad_truth = gradient(gt_frames)
+    grad_pred_x, grad_pred_y = gradient(gen_frames)
+    grad_truth_x, grad_truth_y = gradient(gt_frames)
+    grad_pred = torch.abs(grad_pred_x) + torch.abs(grad_pred_y)
+    grad_truth = torch.abs(grad_truth_x) + torch.abs(grad_truth_y)
 
     # condense into one tensor and avg
     return nn.functional.mse_loss(grad_pred, grad_truth, reduction=reduction)
@@ -47,3 +64,32 @@ class Normalise:
     def __call__(self, x):
         return (x - x.mean()) / x.std()
     
+    
+class Flip:
+    def __call__(self, x):
+        if random.random() > 0.5:
+            x = torch.flip(x, dims=(random.randint(-2, -1), ))
+        return x
+
+    
+class Rotate:
+    def __call__(self, x):
+        if random.random() > 0.5:
+            x = torch.rot90(x, k=random.randint(1, 3), dims=(-2, -1))
+        return x
+    
+
+class Flatten(nn.Module):	
+    def forward(self, input):	
+        return input.view(input.size(0), -1)	
+
+    
+class Unflatten(nn.Module):	
+    def __init__(self, size=256, h=None, w=None):	
+        self.size = size	
+        self.h = h if h is not None else 1	
+        self.w = w if w is not None else 1	
+        super(Unflatten, self).__init__()	
+
+    def forward(self, input):	
+        return input.view(input.size(0), self.size, self.w, self.h)

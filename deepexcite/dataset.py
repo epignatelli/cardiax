@@ -20,7 +20,7 @@ class FkDataset():
         if keys is not None:
             filenames = [name for name in filenames 
                  if os.path.basename(name) in keys ]
-        self.datasets = [Simulation(filename, n_frames_in, n_frames_out, step, transform) for filename in filenames]
+        self.datasets = [Simulation(filename, n_frames_in, n_frames_out, step, transform, squeeze) for filename in filenames]
         
 
     def __len__(self):
@@ -37,10 +37,11 @@ class FkDataset():
             dataset.states.file.close()
     
 class Simulation():
-    def __init__(self, filename, in_frames=1, out_frames=0, step=1, transform=None):
+    def __init__(self, filename, in_frames=1, out_frames=0, step=1, transform=None, squeeze=True):
         self.in_frames = in_frames
         self.out_frames = out_frames
         self.step = step
+        self.squeeze = squeeze
         self.transform = transform
         
         self.filename = filename
@@ -61,11 +62,11 @@ class Simulation():
         
         if self.transform is not None:
             states = self.transform(states)
+            
+        if self.squeeze:
+            states = states.squeeze()
         
         return states
-#         unstimulated = np.zeros(self.states.shape[-2:])
-#         stimuli = np.stack([self.stimulus_at_t(t) for t in range(idx.start, idx.stop, idx.step)])
-#         return {"states": states, "stimuli": stimuli}
     
     def __len__(self):
         return len(self.states) - (self.in_frames + self.out_frames) * self.step
