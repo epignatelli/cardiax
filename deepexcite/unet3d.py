@@ -8,13 +8,13 @@ import torchvision.transforms as t
 from torch.utils.data import DataLoader
 from torchvision.utils import make_grid as mg
 import utils
-from utils import log, grad_mse_loss, time_grad_loss, Elu, Downsample, Normalise, Rotate, Flip
+from utils import log, time_grad, space_grad_mse_loss, time_grad_mse_loss, Elu, Downsample, Normalise, Rotate, Flip
 import random
 
 
 def total_energy_loss(y_hat, y):
-    y_hat_energy = y_hat.sum(dim=(2, 3, 4))
-    y_energy = y.sum(dim=(2, 3, 4))
+    y_hat_energy = y_hat.sum(dim=(-3, -2, -1))
+    y_energy = y.sum(dim=(-3, -2, -1))
     energy_diff = torch.abs(y_hat_energy - y_energy)
     return energy_diff.mean() / y_hat.size(0) / y_hat.size(1)
         
@@ -56,9 +56,9 @@ class ConvTransposeBlock3D(nn.Module):
     def forward(self, x, skip_connection):
         log("going up")
         log("attention", x.shape)
-        skip_connection = self.attention(skip_connection)
+        x = self.attention(x)
         log("cat", x.shape)
-        x = self.features(x + skip_connection)
+        x = self.features(x)
         log("conv", x.shape)
         x = self.upsample(x)
         log("upsample", x.shape, skip_connection.shape)
@@ -68,7 +68,7 @@ class ConvTransposeBlock3D(nn.Module):
 class SoftAttention3D(nn.Module):
     def __init__(self, in_channels):
         super().__init__()
-        self.project = nn.Conv3d(in_channels, in_channels, kernel_size=(3, 1, 1))
+        self.project = nn.Conv3d(in_channels, in_channels, kernel_size=(1, 1, 1))
 
     def forward(self, x):
         return torch.sigmoid(self.project(x))
@@ -77,9 +77,9 @@ class SoftAttention3D(nn.Module):
 class SelfAttention3D(nn.Module):
     def __init__(self, in_channels):
         super().__init__()
-        self.query = nn.Conv3d(in_channels, in_channels, kernel_size=(3, 1, 1))
-        self.key = nn.Conv3d(in_channels, in_channels, kernel_size=(3, 1, 1))
-        self.value = nn.Conv3d(in_channels, in_channels, kernel_size=(3, 1, 1))
+        self.query = nn.Conv3d(in_channels, in_channels, kernel_size=(1, 1, 1))
+        self.key = nn.Conv3d(in_channels, in_channels, kernel_size=(1, 1, 1))
+        self.value = nn.Conv3d(in_channels, in_channels, kernel_size=(1, 1, 1))
     
     def forward(self, x):
         query = self.query(x)
@@ -131,7 +131,7 @@ class Unet3D(LightningModule):
         for i in range(len(down_channels) - 1):
             self.downscale.append(ConvBlock3D(down_channels[i], down_channels[i + 1], pooling=scale_factor))
         
-        up_channels = [frames_out] + channels if frames_out is not None else channels
+        up_channels = [frames_out - 1] + channels if frames_out is not None else channels
         self.upscale = nn.ModuleList()
         for i in range(len(up_channels) - 1):
             self.upscale.append(ConvTransposeBlock3D(up_channels[-i - 1], up_channels[-i - 2], pooling=scale_factor, attention=attention))
@@ -164,41 +164,44 @@ class Unet3D(LightningModule):
         return sum(p.numel() for p in self.parameters())
     
     def get_loss(self, y_hat, y):
-        recon = torch.sqrt(nn.functional.mse_loss(y_hat, y, reduction="sum") / y_hat.size(0) / y_hat.size(1))
-        recon = recon * self.loss_weights.get("recon", 1.)
-        space_grad = torch.sqrt(grad_mse_loss(y_hat, y, reduction="sum") / y_hat.size(0) / y_hat.size(1))
-        space_grad = space_grad * self.loss_weights.get("space_grad", 1.)
-        time_grad = time_grad_loss(y_hat, y) / y_hat.size(0) / y_hat.size(1)
-        time_grad = time_grad * self.loss_weights.get("time_grad", 1.)
-        energy = total_energy_loss(y_hat, y) / y_hat.size(0) / y_hat.size(1)
-        energy = energy * self.loss_weights.get("energy", 1.)
-        return {"recon": recon, "space_grad": space_grad, "time_grad": time_grad, "energy": energy}
+        recon_loss = torch.sqrt(nn.functional.mse_loss(y_hat, y, reduction="sum") / y_hat.size(0) / y_hat.size(1))
+        recon_loss = recon_loss * self.loss_weights.get("recon_loss", 1.)
+        space_grad_loss = torch.sqrt(space_grad_mse_loss(y_hat, y, reduction="sum") / y_hat.size(0) / y_hat.size(1))
+        space_grad_loss = space_grad_loss * self.loss_weights.get("space_grad_loss", 1.)
+        time_grad_loss = torch.sqrt(time_grad_mse_loss(y_hat, y, reduction="sum")) / y_hat.size(0) / y_hat.size(1)
+        time_grad_loss = time_grad_loss * self.loss_weights.get("time_grad_loss", 1.)
+        energy_loss = total_energy_loss(y_hat, y) / y_hat.size(0) / y_hat.size(1)
+        energy_loss = energy_loss * self.loss_weights.get("energy_loss", 1.)
+        return {"recon_loss": recon_loss, "space_grad_loss": space_grad_loss, "time_grad_loss": time_grad_loss, "energy_loss": energy_loss}
     
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=0.001)
     
     def training_step(self, batch, batch_idx):
         batch = batch.float()
-        x = batch[:, :self.frames_in]
-        y = batch[:, self.frames_in:]
+        x = batch[:, :self.frames_in]  # 2 frames
+        y = batch[:, self.frames_in:]  # 20 output frames
         log(x.shape)
         log(y.shape)
-        
-        y_hat = self(x)
-        loss = self.get_loss(y_hat, y)
-        tensorboard_logs = loss
+
+        # get gradients 
+        y_grad = time_grad(y)  # 19 time diff frames
+        y_hat = self(x)  # 19 time diff frames
+
+        loss = self.get_loss(y_hat, y_grad)
+        tensorboard_logs = {"loss/" + k: v for k, v in loss.items()}
         
         i = random.randint(0, y_hat.size(0) - 1)
         nrow, normalise = 10, True
-        self.logger.experiment.add_image("w_input", mg(x[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("v_input", mg(x[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("u_input", mg(x[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)        
-        self.logger.experiment.add_image("w_pred", mg(y_hat[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("w_truth", mg(y[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("v_pred", mg(y_hat[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("v_truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("u_pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("u_truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("w/input", mg(x[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("v/input", mg(x[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("u/input", mg(x[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)        
+        self.logger.experiment.add_image("w/pred", mg(y_hat[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("w/truth", mg(y_grad[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("v/pred", mg(y_hat[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("v/truth", mg(y_grad[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("u/pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("u/truth", mg(y_grad[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         return {"loss": sum(loss.values()), "log": tensorboard_logs}
 
         
@@ -234,17 +237,17 @@ if __name__ == "__main__":
     parser.add_argument('--gpus', type=str, default="0")
     parser.add_argument('--log_interval', type=int, default=10)
     
-    parser.add_argument('--recon', type=float, default=1.)
-    parser.add_argument('--space_grad', type=float, default=1.)
-    parser.add_argument('--time_grad', type=float, default=1.)
-    parser.add_argument('--energy', type=float, default=1.)
+    parser.add_argument('--recon_loss', type=float, default=1.)
+    parser.add_argument('--space_grad_loss', type=float, default=1.)
+    parser.add_argument('--time_grad_loss', type=float, default=1.)
+    parser.add_argument('--energy_loss', type=float, default=1.)
     
     
     args = parser.parse_args()    
     utils.DEBUG = args.debug
     
     model = Unet3D(args.channels, args.frames_in, args.frames_out, args.step, scale_factor=args.scale_factor,
-                   loss_weights={"recon": args.recon, "space_grad": args.space_grad, "energy": args.energy, "time_grad": args.time_grad}, attention=args.attention)
+                   loss_weights={"recon_loss": args.recon_loss, "space_grad_loss": args.space_grad_loss, "energy_loss": args.energy_loss, "time_grad_loss": args.time_grad_loss}, attention=args.attention)
     log(model)
     log("parameters: {}".format(model.parameters_count()))
     

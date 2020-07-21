@@ -17,13 +17,13 @@ def time_grad(x):
     return future - past
 
 
-def time_grad_loss(y_hat, y, reduction="sum"):
+def time_grad_mse_loss(y_hat, y, reduction="sum"):
     time_grad_y_hat = time_grad(y_hat)
     time_grad_y = time_grad(y)
     return nn.functional.mse_loss(time_grad_y_hat, time_grad_y, reduction=reduction)
 
         
-def gradient(x):
+def space_grad(x):
     log("grad", x.shape)
     left = x
     right = nn.functional.pad(x, [0, 1, 0, 0])[..., :, 1:]
@@ -36,9 +36,9 @@ def gradient(x):
     return dx, dy   
         
     
-def grad_mse_loss(gen_frames, gt_frames, reduction="sum"):
-    grad_pred_x, grad_pred_y = gradient(gen_frames)
-    grad_truth_x, grad_truth_y = gradient(gt_frames)
+def space_grad_mse_loss(gen_frames, gt_frames, reduction="sum"):
+    grad_pred_x, grad_pred_y = space_grad(gen_frames)
+    grad_truth_x, grad_truth_y = space_grad(gt_frames)
     grad_pred = torch.abs(grad_pred_x) + torch.abs(grad_pred_y)
     grad_truth = torch.abs(grad_truth_x) + torch.abs(grad_truth_y)
 
