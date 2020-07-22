@@ -58,7 +58,9 @@ def show(state, **kwargs):
 
 def show_grid(states, times=[], figsize=None, rows=5, font_size=10):
     cols = math.ceil(len(states) / rows)
+    rows = max(2, min(rows, len(states)))
     fig, ax = plt.subplots(cols, rows, figsize=figsize)
+    ax = ax.flatten()
     idx = 0
     
     plt.rc('font', size=font_size)          # controls default text sizes
@@ -68,20 +70,17 @@ def show_grid(states, times=[], figsize=None, rows=5, font_size=10):
     plt.rc('ytick', labelsize=font_size)    # fontsize of the tick labels
     plt.rc('legend', fontsize=font_size)    # legend fontsize
     plt.rc('figure', titlesize=font_size)  # fontsize of the figure title
-
-    while idx < len(states):
-        for col in range(cols):
-            for row in range(rows):
-                im = ax[col, row].imshow(states[idx], cmap="magma", vmin=-85, vmax=15,)
-                ax[col, row].xaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
-                ax[col, row].set_xlabel("x [cm]")
-                ax[col, row].yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
-                ax[col, row].set_ylabel("y [cm]")
-                cbar = fig.colorbar(im, ax=ax[col, row])
-                cbar.ax.set_title("mV") 
-                if idx + 1 < len(times):
-                    ax[col, row].set_title("t: {:d}".format(times[idx]))
-                idx += 1
+    
+    for idx in range(len(states)):
+        im = ax[idx].imshow(states[idx], cmap="magma", vmin=-85, vmax=15,)
+        ax[idx].xaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
+        ax[idx].set_xlabel("x [cm]")
+        ax[idx].yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
+        ax[idx].set_ylabel("y [cm]")
+        cbar = fig.colorbar(im, ax=ax[idx])
+        cbar.ax.set_title("mV") 
+        if idx + 1 < len(times):
+            ax[idx].set_title("t: {:d}".format(times[idx]))
     fig.tight_layout()
     return fig, ax
 

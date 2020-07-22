@@ -10,6 +10,12 @@ def log(*m):
         print(*m)
 
         
+def energy_mse_loss(y_hat, y, reduction="sum"):
+    y_hat_energy = y_hat.sum(dim=(-3, -2, -1))
+    y_energy = y.sum(dim=(-3, -2, -1))
+    return nn.functional.mse_loss(y_hat_energy, y_energy, reduction=reduction)
+
+
 def time_grad(x):
     log("time grad", x.shape)
     past = x[:, :-1]

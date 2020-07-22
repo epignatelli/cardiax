@@ -8,21 +8,20 @@ import torchvision.transforms as t
 from torch.utils.data import DataLoader
 from torchvision.utils import make_grid as mg
 import utils
-from utils import log, time_grad, space_grad_mse_loss, time_grad_mse_loss, Elu, Downsample, Normalise, Rotate, Flip
+from utils import log, time_grad, space_grad_mse_loss, time_grad_mse_loss, energy_mse_loss, Elu, Downsample, Normalise, Rotate, Flip
 import random
 import math
 
 
-def total_energy_loss(y_hat, y):
-    y_hat_energy = y_hat.sum(dim=(-3, -2, -1))
-    y_energy = y.sum(dim=(-3, -2, -1))
-    energy_diff = torch.abs(y_hat_energy - y_energy)
-    return energy_diff.mean() / y_hat.size(0) / y_hat.size(1)
-
-
-# class Nurbs(nn.Module):
-#     def __init__(self, degree, )
-
+class SplineActivation(nn.Module):
+    def __init__(self, degree):
+        super(SplineActivation, self).__init__()
+        self.weights = nn.Parameter(torch.randn(degree + 1))
+    
+    def forward(self, x):
+        for i in range(len(self.weights)):
+            x = (x ** i) * self.weights[i]
+        return x
 
 
 class SoftAttention3D(nn.Module):
@@ -55,6 +54,7 @@ class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding, attention="none"):
         super().__init__()
         self.conv = nn.Conv3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
+        self.non_linearity = SplineActivation(3)
         if attention is None or attention.lower() == "none":
             self.attention = nn.Identity()
         elif "self" in attention:
@@ -69,17 +69,19 @@ class ResidualBlock(nn.Module):
         log("attention: ", a.shape)
         dx = self.conv(x)
         dx = torch.nn.functional.elu(dx)
+#         dx = self.non_linearity(dx)
         log("conv: ", dx.shape)
         return dx + x
     
     
 class ResNet(LightningModule):
-    def __init__(self, n_layers, n_filters, kernel_size, frames_in, frames_out, step, loss_weights={}, attention="self"):
+    def __init__(self, n_layers, n_filters, kernel_size, residual_step, frames_in, frames_out, step, loss_weights={}, attention="self"):
         super().__init__()
         self.save_hyperparameters()
         self.n_layers = n_layers
         self.n_filters = n_filters
         self.kernel_size = kernel_size
+        self.residual_step  = residual_step
         self.frames_in = frames_in
         self.frames_out = frames_out
         self.step = step
@@ -95,12 +97,18 @@ class ResNet(LightningModule):
             self.flow.append(ResidualBlock(n_filters, n_filters, kernel_size=kernel_size, stride=1, padding=padding,
                                            attention=attention))
             
-        self.outlet = nn.Conv3d(n_filters, self.frames_out, kernel_size=kernel_size, stride=1, padding=padding)
+        self.outlet = nn.Conv3d(n_filters, 1, kernel_size=kernel_size, stride=1, padding=padding)
         
     def forward(self, x):
         x = self.inlet(x)
+        queue = []
         for i, m in enumerate(self.flow):
             x = m(x)
+            if not (i % self.residual_step):
+                queue.append(x)
+                if i != self.residual_step:
+                    res = queue.pop()
+                    x = x + res
         x = self.outlet(x)
         return x
     
@@ -108,15 +116,13 @@ class ResNet(LightningModule):
         return sum(p.numel() for p in self.parameters())
     
     def get_loss(self, y_hat, y):
-        recon_loss = torch.sqrt(nn.functional.mse_loss(y_hat, y, reduction="sum") / y_hat.size(0) / y_hat.size(1))
+        recon_loss = torch.sqrt(nn.functional.mse_loss(y_hat, y, reduction="mean")) / y_hat.size(0) / y_hat.size(1) / 10000000
         recon_loss = recon_loss * self.loss_weights.get("recon_loss", 1.)
-        space_grad_loss = torch.sqrt(space_grad_mse_loss(y_hat, y, reduction="sum") / y_hat.size(0) / y_hat.size(1))
+        space_grad_loss = torch.sqrt(space_grad_mse_loss(y_hat, y, reduction="mean")) / y_hat.size(0) / y_hat.size(1) / 10000000
         space_grad_loss = space_grad_loss * self.loss_weights.get("space_grad_loss", 1.)
-        time_grad_loss = torch.sqrt(time_grad_mse_loss(y_hat, y, reduction="sum")) / y_hat.size(0) / y_hat.size(1)
-        time_grad_loss = time_grad_loss * self.loss_weights.get("time_grad_loss", 1.)
-        energy_loss = total_energy_loss(y_hat, y) / y_hat.size(0) / y_hat.size(1)
+        energy_loss = torch.sqrt(energy_mse_loss(y_hat, y, reduction="mean")) / y_hat.size(0) / y_hat.size(1) / 10000000
         energy_loss = energy_loss * self.loss_weights.get("energy_loss", 1.)
-        return {"recon_loss": recon_loss, "space_grad_loss": space_grad_loss, "time_grad_loss": time_grad_loss, "energy_loss": energy_loss}
+        return {"recon_loss": recon_loss, "space_grad_loss": space_grad_loss, "energy_loss": energy_loss}
     
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=0.001)
@@ -125,31 +131,58 @@ class ResNet(LightningModule):
         batch = batch.float()
         x = batch[:, :self.frames_in]  # 2 frames
         y = batch[:, self.frames_in:]  # 20 output frames
-
-        # get gradients 
-        y_hat = self(x)  # 19 time diff frames
-        loss = self.get_loss(y_hat, y)
-    
-        # get time grad
-#         y_time_grad = time_grad(torch.cat([x[:, -1].unsqueeze(1), y]))
-#         y_hat_time_grad = time_grad(torch.cat([x[:, -1].unsqueeze(1), y_hat]))
-#         loss["time_grad_loss"] = time_grad_mse_loss(y_hat_time_grad, y_time_grad)
-
-        tensorboard_logs = {"loss/" + k: v for k, v in loss.items()}
         
+        output_sequence = torch.empty_like(y)
+        loss = {}
+        for i in range(self.frames_out):
+            # forward model
+            y_hat = self(x)
+            
+            # calculate loss
+            current_loss = self.get_loss(y_hat, y[:, i].unsqueeze(1))
+            total_loss = sum(current_loss.values())
+            log(total_loss)
+            for k, v in current_loss.items():
+                # detach since this is not useful anymore for backprop
+                loss.update({k: (loss.get(k, 0.) + v).detach()})
+            
+            # backward
+            total_loss.backward(retain_graph=True)
+            
+            # update sequence
+            y_hat = y_hat.squeeze()
+            # detach as this will belong to the graph that computes the next frame
+            output_sequence[:, i] = y_hat.detach()
+            x = torch.stack([x[:, -1], y_hat], dim=1).detach()
+            log("x_input", x.shape)
+            
+        # logging losses
+        tensorboard_logs = {"loss/" + k: v for k, v in loss.items()}
+        tensorboard_logs["total_loss"] = total_loss
+        log(total_loss)
+        return {"loss": total_loss, "log": tensorboard_logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
+    
+    def training_step_end(self, outputs):
+        x, y_hat, y = outputs["out"]
+        log("x", x.shape)
+        log("y_hat", y_hat.shape)
+        log("y", y.shape)
         i = random.randint(0, y_hat.size(0) - 1)
         nrow, normalise = 10, True
         self.logger.experiment.add_image("w/input", mg(x[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("v/input", mg(x[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("u/input", mg(x[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)        
+        self.logger.experiment.add_image("u/input", mg(x[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("w/pred", mg(y_hat[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("w/truth", mg(y[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("v/pred", mg(y_hat[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("v/truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("u/pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        return {"loss": sum(loss.values()) + y_hat.std().mean(), "log": tensorboard_logs}
-
+        return outputs
+    
+    def backward(self, *args):
+        # override backward to do nothing, since the backward pass happens in the training_step function
+        return
         
 def collate(batch):
     x = torch.stack([torch.as_tensor(t) for t in batch], 0)
@@ -174,7 +207,8 @@ if __name__ == "__main__":
     parser.add_argument('--n_layers', required=True, type=int)
     parser.add_argument('--n_filters', required=True, type=int)
     parser.add_argument('--kernel_size', required=True, type=int, nargs='+')
-    parser.add_argument('--attention', required=True, type=str)
+    parser.add_argument('--residual_step', type=int, default=5)
+    parser.add_argument('--attention', type=str, default="none")
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--input_size', type=int, default=256)
     
@@ -203,6 +237,7 @@ if __name__ == "__main__":
     model = ResNet(n_layers=args.n_layers,
                    n_filters=args.n_filters,
                    kernel_size=tuple(args.kernel_size),
+                   residual_step=args.residual_step,
                    frames_in=args.frames_in, frames_out=args.frames_out, step=args.step,
                    loss_weights=loss_weights,
                    attention=args.attention)
@@ -214,6 +249,6 @@ if __name__ == "__main__":
     fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=Normalise(), squeeze=True, keys=keys)
 
     loader = DataLoader(fkset, batch_size=args.batch_size, collate_fn=collate, shuffle=True, num_workers=3)
-    trainer = Trainer.from_argparse_args(parser, fast_dev_run=args.debug, row_log_interval=args.log_interval, default_root_dir="lightning_logs/resnet")
+    trainer = Trainer.from_argparse_args(parser, fast_dev_run=args.debug, row_log_interval=args.log_interval, default_root_dir="lightning_logs/resnet", profiler=args.debug)
     trainer.fit(model, train_dataloader=loader)
     
