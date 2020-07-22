@@ -45,13 +45,16 @@ class Simulation():
         self.transform = transform
         
         self.filename = filename
-        self.open = False
+        file = h5py.File(self.filename, "r") 
+        self.states = file["states_256"]
+        
+#         self.stimuli = fk.io.load_stimuli(file)
+#         for i in range(len(self.stimuli)):
+#             self.stimuli[i]["field"] = np.array(self.stimuli[i]["field"])
+        self.shape = self.states.shape[-2:]
 
     
     def __getitem__(self, idx):
-        if not self.open:
-            self.open_dataset()
-            
         if isinstance(idx, slice):
             idx = slice(idx.start, idx.start + (self.in_frames + self.out_frames) * self.step, self.step)
             states = np.array(self.states[idx])
@@ -67,20 +70,7 @@ class Simulation():
         return states
     
     def __len__(self):
-        if not self.open:
-            self.open_dataset()
-        return len(self.states) - (self.in_frames + self.out_frames) * self.step
-    
-    def open_dataset(self):
-        self.open = True
-        
-        file = h5py.File(self.filename, "r") 
-        self.states = file["states_256"]
-        
-        self.stimuli = fk.io.load_stimuli(file)
-        for i in range(len(self.stimuli)):
-            self.stimuli[i]["field"] = np.array(self.stimuli[i]["field"])
-        self.shape = self.states.shape[-2:]
+        return len(self.states) - (self.in_frames + self.out_frames) * self.step   
     
     def stimulus_at_t(self, t):
         stimulated = np.zeros(self.shape)

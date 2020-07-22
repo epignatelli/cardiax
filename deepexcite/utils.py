@@ -30,7 +30,7 @@ def time_grad_mse_loss(y_hat, y, reduction="sum"):
 
         
 def space_grad(x):
-    log("grad", x.shape)
+    log("space_grad", x.shape)
     left = x
     right = nn.functional.pad(x, [0, 1, 0, 0])[..., :, 1:]
     top = x
@@ -38,7 +38,6 @@ def space_grad(x):
     dx, dy = right - left, bottom - top
     dx[..., :, -1] = 0
     dy[..., -1, :] = 0
-    log(dx.shape, dy.shape)
     return dx, dy   
         
     

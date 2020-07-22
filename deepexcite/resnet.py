@@ -157,7 +157,6 @@ class ResNet(LightningModule):
             # detach as this will belong to the graph that computes the next frame
             output_sequence[:, i] = y_hat.detach()
             x = torch.stack([x[:, -1], y_hat], dim=1).detach()
-            log("x_input", x.shape)
             
         # logging losses
         tensorboard_logs = {"loss/" + k: v for k, v in loss.items()}
@@ -167,9 +166,6 @@ class ResNet(LightningModule):
     
     def training_step_end(self, outputs):
         x, y_hat, y = outputs["out"]
-        log("x", x.shape)
-        log("y_hat", y_hat.shape)
-        log("y", y.shape)
         i = random.randint(0, y_hat.size(0) - 1)
         nrow, normalise = 10, True
         self.logger.experiment.add_image("w/input", mg(x[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
@@ -205,7 +201,7 @@ if __name__ == "__main__":
     
     parser = ArgumentParser()
     parser.add_argument('--frames_in', type=int, default=2)
-    parser.add_argument('--frames_out', type=int, default=20)
+    parser.add_argument('--frames_out', type=int, default=10)
     parser.add_argument('--step', type=int, default=5)
     parser.add_argument('--n_layers', type=int, default=10)
     parser.add_argument('--n_filters', type=int, default=4)
@@ -219,7 +215,7 @@ if __name__ == "__main__":
     parser.add_argument('--root', type=str, default="/media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/")
     parser.add_argument('--filename', type=str, default="/media/SSD1/epignatelli/train_dev_set/spiral_params5.hdf5")
     parser.add_argument('--gpus', type=str, default="0")
-    parser.add_argument('--log_interval', type=int, default=10)
+    parser.add_argument('--row_log_interval', type=int, default=10)
     parser.add_argument('--n_workers', type=int, default=3)
     
     parser.add_argument('--recon_loss', type=float, default=1.)
@@ -252,11 +248,9 @@ if __name__ == "__main__":
     keys = ["spiral_params3.hdf5", "heartbeat_params3.hdf5", "three_points_params3.hdf5"]
     fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=Normalise(), squeeze=True, keys=keys)
 
-    loader = DataLoader(fkset, batch_size=args.batch_size, collate_fn=collate, shuffle=True,
-                        num_workers=args.n_workers)
+    loader = DataLoader(fkset, batch_size=args.batch_size, collate_fn=collate, shuffle=True, num_workers=args.n_workers)
     trainer = Trainer.from_argparse_args(parser,
                                          fast_dev_run=args.debug,
-                                         row_log_interval=args.log_interval,
                                          default_root_dir="lightning_logs/resnet",
                                          profiler=args.debug)
     trainer.fit(model, train_dataloader=loader)
