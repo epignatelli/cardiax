@@ -116,11 +116,13 @@ class ResNet(LightningModule):
         return sum(p.numel() for p in self.parameters())
     
     def get_loss(self, y_hat, y):
-        recon_loss = torch.sqrt(nn.functional.mse_loss(y_hat, y, reduction="mean")) / y_hat.size(0) / y_hat.size(1) / 10000000
+        recon_loss = torch.sqrt(nn.functional.mse_loss(y_hat, y, reduction="mean")) / y_hat.size(0) / y_hat.size(1)
         recon_loss = recon_loss * self.loss_weights.get("recon_loss", 1.)
-        space_grad_loss = torch.sqrt(space_grad_mse_loss(y_hat, y, reduction="mean")) / y_hat.size(0) / y_hat.size(1) / 10000000
+        space_grad_loss = torch.sqrt(space_grad_mse_loss(y_hat, y, reduction="mean")) / y_hat.size(0) / y_hat.size(1)
         space_grad_loss = space_grad_loss * self.loss_weights.get("space_grad_loss", 1.)
-        energy_loss = torch.sqrt(energy_mse_loss(y_hat, y, reduction="mean")) / y_hat.size(0) / y_hat.size(1) / 10000000
+        time_grad_loss = torch.sqrt(time_grad_mse_loss(y_hat, y, reduction="mean")) / y_hat.size(0) / y_hat.size(1)
+        time_grad_loss = time_grad_loss * self.loss_weights.get("time_grad_loss", 1.)
+        energy_loss = torch.sqrt(energy_mse_loss(y_hat, y, reduction="mean")) / y_hat.size(0) / y_hat.size(1)
         energy_loss = energy_loss * self.loss_weights.get("energy_loss", 1.)
         return {"recon_loss": recon_loss, "space_grad_loss": space_grad_loss, "energy_loss": energy_loss}
     
@@ -129,41 +131,30 @@ class ResNet(LightningModule):
     
     def training_step(self, batch, batch_idx):
         batch = batch.float()
-        x = batch[:, :self.frames_in]  # 2 frames
-        y = batch[:, self.frames_in:]  # 20 output frames
+        x = batch[:, :self.frames_in]
+        y = batch[:, self.frames_in:]
         
-        output_sequence = torch.empty_like(y)
-        loss = {}
+        # accumulate the predicitons of all frames
+        y_hat = torch.empty_like(y, requires_grad=True)
         for i in range(self.frames_out):
-            # forward model
-            y_hat = self(x)
-            
-            # calculate loss
-            current_loss = self.get_loss(y_hat, y[:, i].unsqueeze(1))
-            total_loss = sum(current_loss.values())
-            log(total_loss)
-            for k, v in current_loss.items():
-                # detach since this is not useful anymore for backprop
-                loss.update({k: (loss.get(k, 0.) + v).detach()})
-            
-            # backward
-            total_loss.backward(retain_graph=True)
-            
-            # update sequence
-            y_hat = y_hat.squeeze()
-            # detach as this will belong to the graph that computes the next frame
-            output_sequence[:, i] = y_hat.detach()
-            x = torch.stack([x[:, -1], y_hat], dim=1).detach()
+            y_hat_i = self(x).squeeze()
+            y_hat[:, i] = y_hat_i.detach()
+            x = torch.stack([x[:, -1], y_hat_i], dim=1).detach()
             log("x_input", x.shape)
-            
+        
+        # calculate loss
+        loss = self.get_loss(y_hat, y)
+        total_loss = sum(loss.values())
+        log(total_loss, loss)
+        
         # logging losses
         tensorboard_logs = {"loss/" + k: v for k, v in loss.items()}
         tensorboard_logs["total_loss"] = total_loss
         log(total_loss)
-        return {"loss": total_loss, "log": tensorboard_logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
+        return {"loss": total_loss, "log": tensorboard_logs, "out": (batch[:, :self.frames_in], y_hat, y)}
     
-    def training_step_end(self, outputs):
-        x, y_hat, y = outputs["out"]
+    def training_step_end(self, training_step_outputs):
+        x, y_hat, y = training_step_outputs["out"]
         log("x", x.shape)
         log("y_hat", y_hat.shape)
         log("y", y.shape)
@@ -178,11 +169,8 @@ class ResNet(LightningModule):
         self.logger.experiment.add_image("v/truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("u/pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        return outputs
+        return training_step_outputs
     
-    def backward(self, *args):
-        # override backward to do nothing, since the backward pass happens in the training_step function
-        return
         
 def collate(batch):
     x = torch.stack([torch.as_tensor(t) for t in batch], 0)
