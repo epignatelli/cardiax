@@ -140,7 +140,7 @@ def animate(states, times=None, figsize=None, channel=None, vmin=0, vmax=1):
     return animation
 
 
-def animate3d(states, times=None, figsize=None):
+def animate3d(states, times=None, figsize=None, channel=2):
     backend = matplotlib.get_backend()
     matplotlib.use("nbAgg")
     fig, ax = plt.subplots(1, 1, figsize=figsize)
