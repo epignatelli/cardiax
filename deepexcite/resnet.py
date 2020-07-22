@@ -20,7 +20,7 @@ class SplineActivation(nn.Module):
     
     def forward(self, x):
         for i in range(len(self.weights)):
-            x = (x ** i) * self.weights[i]
+            x = x + (x ** i) * self.weights[i]
         return x
 
 
@@ -54,13 +54,16 @@ class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding, attention="none"):
         super().__init__()
         self.conv = nn.Conv3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
-        self.non_linearity = SplineActivation(3)
+        torch.nn.init.zeros_(self.conv.weight)
+#         self.non_linearity = SplineActivation(3)
         if attention is None or attention.lower() == "none":
             self.attention = nn.Identity()
         elif "self" in attention:
             self.attention = SelfAttention3D(out_channels)
+            torch.nn.init.zeros_(self.attention.weight)
         else:
             self.attention = SoftAttention3D(out_channels)
+            torch.nn.init.zeros_(self.attention.weight)
         
     def forward(self, x):
         log("x: ", x.shape)
@@ -158,7 +161,7 @@ class ResNet(LightningModule):
             
         # logging losses
         tensorboard_logs = {"loss/" + k: v for k, v in loss.items()}
-        tensorboard_logs["total_loss"] = total_loss
+        tensorboard_logs["loss/total_loss"] = total_loss
         log(total_loss)
         return {"loss": total_loss, "log": tensorboard_logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
     
@@ -201,12 +204,12 @@ if __name__ == "__main__":
     from argparse import ArgumentParser
     
     parser = ArgumentParser()
-    parser.add_argument('--frames_in', required=True, type=int)
-    parser.add_argument('--frames_out', required=True, type=int)
-    parser.add_argument('--step', required=True, type=int)
-    parser.add_argument('--n_layers', required=True, type=int)
-    parser.add_argument('--n_filters', required=True, type=int)
-    parser.add_argument('--kernel_size', required=True, type=int, nargs='+')
+    parser.add_argument('--frames_in', type=int, default=2)
+    parser.add_argument('--frames_out', type=int, default=20)
+    parser.add_argument('--step', type=int, default=5)
+    parser.add_argument('--n_layers', type=int, default=10)
+    parser.add_argument('--n_filters', type=int, default=4)
+    parser.add_argument('--kernel_size', type=int, nargs='+', default=(1, 7, 7))
     parser.add_argument('--residual_step', type=int, default=5)
     parser.add_argument('--attention', type=str, default="none")
     parser.add_argument('--batch_size', type=int, default=32)
@@ -217,6 +220,7 @@ if __name__ == "__main__":
     parser.add_argument('--filename', type=str, default="/media/SSD1/epignatelli/train_dev_set/spiral_params5.hdf5")
     parser.add_argument('--gpus', type=str, default="0")
     parser.add_argument('--log_interval', type=int, default=10)
+    parser.add_argument('--n_workers', type=int, default=3)
     
     parser.add_argument('--recon_loss', type=float, default=1.)
     parser.add_argument('--space_grad_loss', type=float, default=1.)
@@ -248,7 +252,12 @@ if __name__ == "__main__":
     keys = ["spiral_params3.hdf5", "heartbeat_params3.hdf5", "three_points_params3.hdf5"]
     fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=Normalise(), squeeze=True, keys=keys)
 
-    loader = DataLoader(fkset, batch_size=args.batch_size, collate_fn=collate, shuffle=True, num_workers=3)
-    trainer = Trainer.from_argparse_args(parser, fast_dev_run=args.debug, row_log_interval=args.log_interval, default_root_dir="lightning_logs/resnet", profiler=args.debug)
+    loader = DataLoader(fkset, batch_size=args.batch_size, collate_fn=collate, shuffle=True,
+                        num_workers=args.n_workers)
+    trainer = Trainer.from_argparse_args(parser,
+                                         fast_dev_run=args.debug,
+                                         row_log_interval=args.log_interval,
+                                         default_root_dir="lightning_logs/resnet",
+                                         profiler=args.debug)
     trainer.fit(model, train_dataloader=loader)
     

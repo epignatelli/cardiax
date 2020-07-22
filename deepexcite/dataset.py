@@ -67,9 +67,13 @@ class Simulation():
         return states
     
     def __len__(self):
-        return 2000 - (self.in_frames + self.out_frames) * self.step
+        if not self.open:
+            self.open_dataset()
+        return len(self.states) - (self.in_frames + self.out_frames) * self.step
     
     def open_dataset(self):
+        self.open = True
+        
         file = h5py.File(self.filename, "r") 
         self.states = file["states_256"]
         
