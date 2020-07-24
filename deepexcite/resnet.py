@@ -16,7 +16,7 @@ import math
 class SplineActivation(nn.Module):
     def __init__(self, degree):
         super(SplineActivation, self).__init__()
-        self.weights = nn.Parameter(torch.randn(degree + 1))
+        self.weights = nn.Parameter(torch.empty(degree + 1))
     
     def forward(self, x):
         for i in range(len(self.weights)):
@@ -28,6 +28,7 @@ class SoftAttention3D(nn.Module):
     def __init__(self, in_channels):
         super().__init__()
         self.project = nn.Conv3d(in_channels, in_channels, kernel_size=(3, 1, 1), padding=(1, 0, 0))
+#         torch.nn.init.zeros_(self.project.weight)
 
     def forward(self, x):
         return torch.sigmoid(self.project(x))
@@ -39,7 +40,10 @@ class SelfAttention3D(nn.Module):
         self.query = nn.Conv3d(in_channels, in_channels, kernel_size=(3, 1, 1), padding=(1, 0, 0))
         self.key = nn.Conv3d(in_channels, in_channels, kernel_size=(3, 1, 1), padding=(1, 0, 0))
         self.value = nn.Conv3d(in_channels, in_channels, kernel_size=(3, 1, 1), padding=(1, 0, 0))
-    
+#         torch.nn.init.zeros_(self.query.weight)
+#         torch.nn.init.zeros_(self.key.weight)
+#         torch.nn.init.zeros_(self.value.weight)
+        
     def forward(self, x):
         query = self.query(x)
         key = self.key(x)
@@ -51,45 +55,47 @@ class SelfAttention3D(nn.Module):
 
     
 class ResidualBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, attention="none"):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, attention="none", activation=0):
         super().__init__()
         self.conv = nn.Conv3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
-        torch.nn.init.zeros_(self.conv.weight)
-#         self.non_linearity = SplineActivation(3)
+#         torch.nn.init.zeros_(self.conv.weight)
+        if activation:
+            self.activation = SplineActivation(activation)
+        else:
+            self.activation = torch.nn.functional.elu
         if attention is None or attention.lower() == "none":
             self.attention = nn.Identity()
         elif "self" in attention:
             self.attention = SelfAttention3D(out_channels)
-            torch.nn.init.zeros_(self.attention.weight)
         else:
             self.attention = SoftAttention3D(out_channels)
-            torch.nn.init.zeros_(self.attention.weight)
         
     def forward(self, x):
         log("x: ", x.shape)
         a = self.attention(x)
-        a = torch.sigmoid(x)
+#         a = torch.sigmoid(x)
         log("attention: ", a.shape)
         dx = self.conv(x)
-        dx = torch.nn.functional.elu(dx)
-#         dx = self.non_linearity(dx)
+        dx = self.activation(dx)
         log("conv: ", dx.shape)
         return dx + x
     
     
 class ResNet(LightningModule):
-    def __init__(self, n_layers, n_filters, kernel_size, residual_step, frames_in, frames_out, step, loss_weights={}, attention="self"):
+    def __init__(self, n_layers, n_filters, kernel_size, residual_step, activation, frames_in, frames_out, step, loss_weights={}, attention="self", lr=0.001):
         super().__init__()
         self.save_hyperparameters()
         self.n_layers = n_layers
         self.n_filters = n_filters
         self.kernel_size = kernel_size
         self.residual_step  = residual_step
+        self.activation = activation
         self.frames_in = frames_in
         self.frames_out = frames_out
         self.step = step
         self.loss_weights = loss_weights
         self.attention = attention
+        self.lr = lr
         
         padding = tuple([math.floor(x / 2) for x in kernel_size])
         
@@ -98,7 +104,7 @@ class ResNet(LightningModule):
         self.flow = nn.ModuleList()
         for i in range(n_layers):
             self.flow.append(ResidualBlock(n_filters, n_filters, kernel_size=kernel_size, stride=1, padding=padding,
-                                           attention=attention))
+                                           attention=attention, activation=activation))
             
         self.outlet = nn.Conv3d(n_filters, 1, kernel_size=kernel_size, stride=1, padding=padding)
         
@@ -128,41 +134,69 @@ class ResNet(LightningModule):
         return {"recon_loss": recon_loss, "space_grad_loss": space_grad_loss, "energy_loss": energy_loss}
     
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=0.001)
+        adam = torch.optim.Adam(self.parameters(), lr=self.lr)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(adam, verbose=True, min_lr=0.00001)
+        return [adam], [scheduler]
     
     def training_step(self, batch, batch_idx):
         batch = batch.float()
-        x = batch[:, :self.frames_in]  # 2 frames
-        y = batch[:, self.frames_in:]  # 20 output frames
+        x = batch[:, :self.frames_in]
+        y = batch[:, self.frames_in:]
         
         output_sequence = torch.empty_like(y)
         loss = {}
         for i in range(self.frames_out):
             # forward model
-            y_hat = self(x)
+            output_sequence[:, i] = self(x).squeeze()
             
             # calculate loss
-            current_loss = self.get_loss(y_hat, y[:, i].unsqueeze(1))
+            current_loss = self.get_loss(output_sequence[:, i], y[:, i])
             total_loss = sum(current_loss.values())
             log(total_loss)
             for k, v in current_loss.items():
-                # detach since this is not useful anymore for backprop
-                loss.update({k: (loss.get(k, 0.) + v).detach()})
+                loss.update({k: (loss.get(k, 0.) + v).detach()})  # detach partial losses since they're not useful anymore for backprop
             
             # backward
-            total_loss.backward(retain_graph=True)
+            total_loss.backward(retain_graph=self.frames_out > 1)
             
-            # update sequence
-            y_hat = y_hat.squeeze()
-            # detach as this will belong to the graph that computes the next frame
-            output_sequence[:, i] = y_hat.detach()
-            x = torch.stack([x[:, -1], y_hat], dim=1).detach()
+            if (self.frames_out > 1):
+                # update sequence
+                output_sequence[:, i] = output_sequence[:, i].detach().cpu()
+                x = torch.stack([x[:, -1], output_sequence[:, i]], dim=1).detach()
             
         # logging losses
         tensorboard_logs = {"loss/" + k: v for k, v in loss.items()}
         tensorboard_logs["loss/total_loss"] = total_loss
         log(total_loss)
-        return {"loss": total_loss, "log": tensorboard_logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
+        return {"loss": total_loss, "val_loss": total_loss, "log": tensorboard_logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
+    
+    def on_epoch_start(self):
+        # log learning rate
+        self.logger.experiment.add_scalar("epoch/lr", self.lr, self.current_epoch)
+        
+        # log model weights
+        for i, module in enumerate(self.flow):
+            # log conv kernels
+            self.logger.experiment.add_histogram("_conv", module.conv.weight, i)
+            for c in range(self.kernel_size[0]):
+                self.logger.experiment.add_image("kernel/layer-{}".format(i), mg(module.conv.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)
+            
+            # log attention 
+            if hasattr(module.attention, "project"):
+                self.logger.experiment.add_histogram("_soft-attention", module.attention.project.weight, i)
+                for c in range(self.kernel_size[0]):
+                    self.logger.experiment.add_image("_soft-attention/layer-{}".format(i), mg(module.conv.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)
+            elif hasattr(module.attention, "query"):
+                self.logger.experiment.add_histogram("_seft-attention/query", module.attention.query.weight, i)
+                self.logger.experiment.add_histogram("_seft-attention/key", module.attention.key.weight, i)
+                self.logger.experiment.add_histogram("_seft-attention/value", module.attention.value.weight, i)
+                for c in range(self.kernel_size[0]):
+                    self.logger.experiment.add_image("_soft-attention/query-{}".format(i), mg(module.attention.query.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)
+                    self.logger.experiment.add_image("_soft-attention/key-{}".format(i), mg(module.attention.key.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)
+                    self.logger.experiment.add_image("_soft-attention/value-{}".format(i), mg(module.attention.query.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)
+            
+
+        return
     
     def training_step_end(self, outputs):
         x, y_hat, y = outputs["out"]
@@ -207,9 +241,11 @@ if __name__ == "__main__":
     parser.add_argument('--n_filters', type=int, default=4)
     parser.add_argument('--kernel_size', type=int, nargs='+', default=(1, 7, 7))
     parser.add_argument('--residual_step', type=int, default=5)
+    parser.add_argument('--activation', type=int, default=0)
     parser.add_argument('--attention', type=str, default="none")
-    parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--input_size', type=int, default=256)
+    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--lr', type=float, default=0.001)
     
     parser.add_argument('--debug', default=False, action="store_true")
     parser.add_argument('--root', type=str, default="/media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/")
@@ -238,9 +274,11 @@ if __name__ == "__main__":
                    n_filters=args.n_filters,
                    kernel_size=tuple(args.kernel_size),
                    residual_step=args.residual_step,
+                   activation=args.activation,
                    frames_in=args.frames_in, frames_out=args.frames_out, step=args.step,
                    loss_weights=loss_weights,
-                   attention=args.attention)
+                   attention=args.attention,
+                   lr=args.lr)
     
     log(model)
     log("parameters: {}".format(model.parameters_count()))
