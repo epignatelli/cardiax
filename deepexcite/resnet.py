@@ -28,7 +28,6 @@ class SoftAttention3D(nn.Module):
     def __init__(self, in_channels):
         super().__init__()
         self.project = nn.Conv3d(in_channels, in_channels, kernel_size=(3, 1, 1), padding=(1, 0, 0))
-#         torch.nn.init.zeros_(self.project.weight)
 
     def forward(self, x):
         return torch.sigmoid(self.project(x))
@@ -40,9 +39,6 @@ class SelfAttention3D(nn.Module):
         self.query = nn.Conv3d(in_channels, in_channels, kernel_size=(3, 1, 1), padding=(1, 0, 0))
         self.key = nn.Conv3d(in_channels, in_channels, kernel_size=(3, 1, 1), padding=(1, 0, 0))
         self.value = nn.Conv3d(in_channels, in_channels, kernel_size=(3, 1, 1), padding=(1, 0, 0))
-#         torch.nn.init.zeros_(self.query.weight)
-#         torch.nn.init.zeros_(self.key.weight)
-#         torch.nn.init.zeros_(self.value.weight)
         
     def forward(self, x):
         query = self.query(x)
@@ -58,7 +54,6 @@ class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding, attention="none", activation=0):
         super().__init__()
         self.conv = nn.Conv3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
-#         torch.nn.init.zeros_(self.conv.weight)
         if activation:
             self.activation = SplineActivation(activation)
         else:
@@ -73,7 +68,6 @@ class ResidualBlock(nn.Module):
     def forward(self, x):
         log("x: ", x.shape)
         a = self.attention(x)
-#         a = torch.sigmoid(x)
         log("attention: ", a.shape)
         dx = self.conv(x)
         dx = self.activation(dx)
@@ -98,7 +92,6 @@ class ResNet(LightningModule):
         self.lr = lr
         
         padding = tuple([math.floor(x / 2) for x in kernel_size])
-        
         self.inlet = nn.Conv3d(self.frames_in, n_filters, kernel_size=kernel_size, stride=1, padding=padding)
         
         self.flow = nn.ModuleList()
@@ -121,6 +114,11 @@ class ResNet(LightningModule):
         x = self.outlet(x)
         return x
     
+    def backward(self, *args):
+        # we're using truncated backprop through time, so we call the backward methods inside training_step
+        # we override this to do nothing
+        return
+    
     def parameters_count(self):
         return sum(p.numel() for p in self.parameters())
     
@@ -134,9 +132,11 @@ class ResNet(LightningModule):
         return {"recon_loss": recon_loss, "space_grad_loss": space_grad_loss, "energy_loss": energy_loss}
     
     def configure_optimizers(self):
-        adam = torch.optim.Adam(self.parameters(), lr=self.lr)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(adam, verbose=True, min_lr=0.00001)
-        return [adam], [scheduler]
+        optimisers = [torch.optim.Adam(self.parameters(), lr=self.lr)]
+        schedulers = [{
+            'scheduler': torch.optim.lr_scheduler.ReduceLROnPlateau(optimisers[0], verbose=True, min_lr=1e-8),
+            'monitor': 'loss'}]
+        return optimisers, schedulers
     
     def training_step(self, batch, batch_idx):
         batch = batch.float()
@@ -152,7 +152,6 @@ class ResNet(LightningModule):
             # calculate loss
             current_loss = self.get_loss(output_sequence[:, i], y[:, i])
             total_loss = sum(current_loss.values())
-            log(total_loss)
             for k, v in current_loss.items():
                 loss.update({k: (loss.get(k, 0.) + v).detach()})  # detach partial losses since they're not useful anymore for backprop
             
@@ -161,22 +160,35 @@ class ResNet(LightningModule):
             
             if (self.frames_out > 1):
                 # update sequence
-                output_sequence[:, i] = output_sequence[:, i].detach().cpu()
+                output_sequence[:, i] = output_sequence[:, i].detach()
                 x = torch.stack([x[:, -1], output_sequence[:, i]], dim=1).detach()
             
         # logging losses
-        tensorboard_logs = {"loss/" + k: v for k, v in loss.items()}
-        tensorboard_logs["loss/total_loss"] = total_loss
-        log(total_loss)
-        return {"loss": total_loss, "val_loss": total_loss, "log": tensorboard_logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
+        tensorboard_logs = {"train_loss/" + k: v for k, v in loss.items()}
+        tensorboard_logs["train_loss/total_loss"] = total_loss
+        return {"loss": total_loss, "log": tensorboard_logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
     
-    def on_epoch_start(self):
-        # log learning rate
-        self.logger.experiment.add_scalar("epoch/lr", self.lr, self.current_epoch)
+    def training_step_end(self, outputs):
+        x, y_hat, y = outputs["out"]
         
+        # log outputs as images
+        i = random.randint(0, y_hat.size(0) - 1)
+        nrow, normalise = 10, True
+        self.logger.experiment.add_image("train_w/input", mg(x[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("train_v/input", mg(x[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("train_u/input", mg(x[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("train_w/pred", mg(y_hat[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("train_w/truth", mg(y[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("train_v/pred", mg(y_hat[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("train_v/truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("train_u/pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("train_u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        return outputs    
+    
+    def train_epoch_end(self, outputs):
         # log model weights
         for i, module in enumerate(self.flow):
-            # log conv kernels
+            # conv kernels
             self.logger.experiment.add_histogram("_conv", module.conv.weight, i)
             for c in range(self.kernel_size[0]):
                 self.logger.experiment.add_image("kernel/layer-{}".format(i), mg(module.conv.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)
@@ -193,29 +205,59 @@ class ResNet(LightningModule):
                 for c in range(self.kernel_size[0]):
                     self.logger.experiment.add_image("_soft-attention/query-{}".format(i), mg(module.attention.query.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)
                     self.logger.experiment.add_image("_soft-attention/key-{}".format(i), mg(module.attention.key.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)
-                    self.logger.experiment.add_image("_soft-attention/value-{}".format(i), mg(module.attention.query.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)
-            
-
-        return
-    
-    def training_step_end(self, outputs):
-        x, y_hat, y = outputs["out"]
-        i = random.randint(0, y_hat.size(0) - 1)
-        nrow, normalise = 10, True
-        self.logger.experiment.add_image("w/input", mg(x[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("v/input", mg(x[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("u/input", mg(x[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("w/pred", mg(y_hat[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("w/truth", mg(y[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("v/pred", mg(y_hat[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("v/truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("u/pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+                    self.logger.experiment.add_image("_soft-attention/value-{}".format(i), mg(module.attention.query.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)     
         return outputs
     
-    def backward(self, *args):
-        # override backward to do nothing, since the backward pass happens in the training_step function
-        return
+    @torch.no_grad()
+    def validation_step(self, batch, batch_idx):
+        batch = batch.float()
+        x = batch[:, :self.frames_in]
+        y = batch[:, self.frames_in:]
+        
+        output_sequence = torch.empty_like(y)
+        loss = {}
+        for i in range(self.frames_out):
+            # forward model
+            output_sequence[:, i] = self(x).squeeze()
+            
+            # calculate loss
+            current_loss = self.get_loss(output_sequence[:, i], y[:, i])
+            total_loss = sum(current_loss.values())
+            for k, v in current_loss.items():
+                loss.update({k: (loss.get(k, 0.) + v)})  # detach partial losses since they're not useful anymore for backprop
+                        
+            if (self.frames_out > 1):
+                # update sequence
+                output_sequence[:, i] = output_sequence[:, i]
+                x = torch.stack([x[:, -1], output_sequence[:, i]], dim=1)
+            
+        # logging losses
+        tensorboard_logs = {"val_loss/" + k: v for k, v in loss.items()}
+        tensorboard_logs["val_loss/total_loss"] = total_loss
+        return {"loss": total_loss, "log": tensorboard_logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
+    
+    @torch.no_grad()
+    def validation_step_end(self, outputs):
+        log("RUNNING VALIDATION_STEP_END, finally!")
+        x, y_hat, y = outputs["out"]
+        
+        # log loss
+        for k, v in outputs["log"].items():
+            self.logger.experiment.add_scalar(k, v, self.current_epoch)
+        
+        # log outputs as images
+        i = random.randint(0, y_hat.size(0) - 1)
+        nrow, normalise = 10, True
+        self.logger.experiment.add_image("val_w/input", mg(x[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_v/input", mg(x[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_u/input", mg(x[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_w/pred", mg(y_hat[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_w/truth", mg(y[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_v/pred", mg(y_hat[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_v/truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_u/pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        return outputs
         
 def collate(batch):
     x = torch.stack([torch.as_tensor(t) for t in batch], 0)
@@ -246,6 +288,7 @@ if __name__ == "__main__":
     parser.add_argument('--input_size', type=int, default=256)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--lr', type=float, default=0.001)
+    parser.add_argument('--precision', type=int, default=32)
     
     parser.add_argument('--debug', default=False, action="store_true")
     parser.add_argument('--root', type=str, default="/media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/")
@@ -283,13 +326,15 @@ if __name__ == "__main__":
     log(model)
     log("parameters: {}".format(model.parameters_count()))
     
-    keys = ["spiral_params3.hdf5", "heartbeat_params3.hdf5", "three_points_params3.hdf5"]
-    fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=Normalise(), squeeze=True, keys=keys)
+    train_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=Normalise(), squeeze=True, keys=["spiral_params3.hdf5", "three_points_params3.hdf5"])
+    val_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=Normalise(), squeeze=True, keys=["heartbeat_params3.hdf5"])
+    
+    train_loader = DataLoader(train_fkset, batch_size=args.batch_size, collate_fn=collate, shuffle=True, num_workers=args.n_workers)
+    val_loader = DataLoader(val_fkset, batch_size=args.batch_size, collate_fn=collate, num_workers=args.n_workers)
 
-    loader = DataLoader(fkset, batch_size=args.batch_size, collate_fn=collate, shuffle=True, num_workers=args.n_workers)
     trainer = Trainer.from_argparse_args(parser,
                                          fast_dev_run=args.debug,
                                          default_root_dir="lightning_logs/resnet",
                                          profiler=args.debug)
-    trainer.fit(model, train_dataloader=loader)
+    trainer.fit(model, train_dataloader=train_loader, val_dataloaders=val_loader)
     
