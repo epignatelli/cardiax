@@ -236,7 +236,7 @@ class ResNet(LightningModule):
         self._val_steps_done += 1
         return {"loss": total_loss, "log": logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
     
-    @torch.no_grad()
+#     @torch.no_grad()
     def validation_step_end(self, outputs):
         x, y_hat, y = outputs["out"]
         
@@ -287,7 +287,6 @@ if __name__ == "__main__":
     parser.add_argument('--input_size', type=int, default=256)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--lr', type=float, default=0.001)
-    parser.add_argument('--precision', type=int, default=32)
     
     parser.add_argument('--debug', default=False, action="store_true")
     parser.add_argument('--root', type=str, default="/media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/")
