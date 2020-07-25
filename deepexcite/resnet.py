@@ -141,7 +141,6 @@ class ResNet(LightningModule):
         return optimisers, schedulers
     
     def training_step(self, batch, batch_idx):
-        batch = batch.float()
         x = batch[:, :self.frames_in]
         y = batch[:, self.frames_in:]
         
@@ -168,7 +167,7 @@ class ResNet(LightningModule):
         # logging losses
         logs = {"train_loss/" + k: v for k, v in loss.items()}
         logs["train_loss/total_loss"] = total_loss
-        return {"loss": total_loss, "log": logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
+        return {"loss": total_loss, "val_loss": total_loss, "log": logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
     
     def training_step_end(self, outputs):
         x, y_hat, y = outputs["out"]
@@ -210,7 +209,6 @@ class ResNet(LightningModule):
                     self.logger.experiment.add_image("_soft-attention/value-{}".format(i), mg(module.attention.query.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)     
         return outputs
     
-    @torch.no_grad()
     def validation_step(self, batch, batch_idx):
         batch = batch.float()
         x = batch[:, :self.frames_in]
