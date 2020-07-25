@@ -91,6 +91,8 @@ class ResNet(LightningModule):
         self.attention = attention
         self.lr = lr
         
+        self._val_steps_done = 0
+        
         padding = tuple([math.floor(x / 2) for x in kernel_size])
         self.inlet = nn.Conv3d(self.frames_in, n_filters, kernel_size=kernel_size, stride=1, padding=padding)
         
@@ -164,9 +166,9 @@ class ResNet(LightningModule):
                 x = torch.stack([x[:, -1], output_sequence[:, i]], dim=1).detach()
             
         # logging losses
-        tensorboard_logs = {"train_loss/" + k: v for k, v in loss.items()}
-        tensorboard_logs["train_loss/total_loss"] = total_loss
-        return {"loss": total_loss, "log": tensorboard_logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
+        logs = {"train_loss/" + k: v for k, v in loss.items()}
+        logs["train_loss/total_loss"] = total_loss
+        return {"loss": total_loss, "log": logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
     
     def training_step_end(self, outputs):
         x, y_hat, y = outputs["out"]
@@ -228,22 +230,21 @@ class ResNet(LightningModule):
                         
             if (self.frames_out > 1):
                 # update sequence
-                output_sequence[:, i] = output_sequence[:, i]
                 x = torch.stack([x[:, -1], output_sequence[:, i]], dim=1)
             
         # logging losses
-        tensorboard_logs = {"val_loss/" + k: v for k, v in loss.items()}
-        tensorboard_logs["val_loss/total_loss"] = total_loss
-        return {"loss": total_loss, "log": tensorboard_logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
+        logs = {"val_loss/" + k: v for k, v in loss.items()}
+        logs["val_loss/total_loss"] = total_loss
+        self._val_steps_done += 1
+        return {"loss": total_loss, "log": logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
     
     @torch.no_grad()
     def validation_step_end(self, outputs):
-        log("RUNNING VALIDATION_STEP_END, finally!")
         x, y_hat, y = outputs["out"]
         
         # log loss
         for k, v in outputs["log"].items():
-            self.logger.experiment.add_scalar(k, v, self.current_epoch)
+            self.logger.experiment.add_scalar(k, v, self._val_steps_done)
         
         # log outputs as images
         i = random.randint(0, y_hat.size(0) - 1)
@@ -296,12 +297,12 @@ if __name__ == "__main__":
     parser.add_argument('--gpus', type=str, default="0")
     parser.add_argument('--row_log_interval', type=int, default=10)
     parser.add_argument('--n_workers', type=int, default=3)
+    parser.add_argument('--resume_from_checkpoint', type=str, default=None)
     
     parser.add_argument('--recon_loss', type=float, default=1.)
     parser.add_argument('--space_grad_loss', type=float, default=1.)
     parser.add_argument('--time_grad_loss', type=float, default=1.)
     parser.add_argument('--energy_loss', type=float, default=1.)
-    
     
     args = parser.parse_args()    
     utils.DEBUG = args.debug
