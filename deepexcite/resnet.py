@@ -84,7 +84,7 @@ class ResidualBlock(nn.Module):
         else:
             self.activation = torch.nn.functional.elu
         if attention is None or attention.lower() == "none":
-            self.attention = nn.Identity()
+            self.attention = None
         elif "self" in attention:
             self.attention = SelfAttention3D(out_channels)
         else:
@@ -92,12 +92,14 @@ class ResidualBlock(nn.Module):
         
     def forward(self, x):
         log("x: ", x.shape)
-        a = self.attention(x)
-        log("attention: ", a.shape)
         dx = self.conv(x)
         dx = self.activation(dx)
         log("conv: ", dx.shape)
-        return (dx * a) + x
+        if self.attention is not None:
+            a = self.attention(x)
+            log("attention: ", a.shape)
+            return (dx * a) + x
+        return dx + x
     
     
 class ResNet(LightningModule):
