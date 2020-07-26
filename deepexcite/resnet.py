@@ -205,12 +205,13 @@ class ResNet(LightningModule):
             total_loss.backward()
             self.profile_gpu_memory()
             
-            # update sequence and truncate gradient propagation
+            # update output sequence
+            output_sequence[:, i] = y_hat
+            self.profile_gpu_memory()
+
+            # update input sequence with predicted frames
             if (self.frames_out > 1):
-                self.profile_gpu_memory()
                 x = torch.stack([x[:, -1], y_hat], dim=1)
-                self.profile_gpu_memory()
-                output_sequence[:, i] = y_hat
                 self.profile_gpu_memory()
             
         # logging losses
@@ -219,9 +220,8 @@ class ResNet(LightningModule):
         return {"loss": total_loss, "log": logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
     
     def training_step_end(self, outputs):
-        x, y_hat, y = outputs["out"]
-        
         # log outputs as images
+        x, y_hat, y = outputs["out"]
         i = random.randint(0, y_hat.size(0) - 1)
         nrow, normalise = 10, True
         self.logger.experiment.add_image("train_w/input", mg(x[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
@@ -241,16 +241,16 @@ class ResNet(LightningModule):
         x = batch[:, :self.frames_in]
         y = batch[:, self.frames_in:]
         
-        output_sequence = torch.empty_like(y)
+        y_hat = torch.empty_like(y)
         loss = {}
         for i in range(self.frames_out):
             # forward model
             log("memory before forward", torch.cuda.memory_allocated(x.device))
-            output_sequence[:, i] = self(x).squeeze()
+            y_hat[:, i] = self(x).squeeze()
             log("memory after forward", torch.cuda.memory_allocated(x.device))
             
             # calculate loss
-            current_loss = self.get_loss(output_sequence[:, i], y[:, i])
+            current_loss = self.get_loss(y_hat[:, i], y[:, i])
             log("memory after get_loss", torch.cuda.memory_allocated(x.device))
             total_loss = sum(current_loss.values())
             log("memory after loss accumulation", torch.cuda.memory_allocated(x.device))
@@ -260,15 +260,14 @@ class ResNet(LightningModule):
             
             if (self.frames_out > 1):
                 # update sequence
-                
-                x = torch.stack([x[:, -1], output_sequence[:, i]], dim=1)
+                x = torch.stack([x[:, -1], y_hat[:, i]], dim=1)
                 log("memory after sequence update", torch.cuda.memory_allocated(x.device))
             
         # logging losses
         logs = {"val_loss/" + k: v for k, v in loss.items()}
         logs["val_loss/total_loss"] = total_loss
         self._val_steps_done += 1
-        return {"loss": total_loss, "log": logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
+        return {"loss": total_loss, "log": logs, "out": (batch[:, :self.frames_in], y_hat, y)}
     
     @torch.no_grad()
     def validation_step_end(self, outputs):
@@ -394,7 +393,7 @@ if __name__ == "__main__":
                                          log_gpu_memory="all" if args.profile else None,
                                          train_percent_check=0.01 if args.profile else 1.0,
                                          val_percent_check=0.1 if args.profile else 1.0,
-                                         callbacks=[LearningRateLogger(), IncreaseFramsesOut(trigger_at=100)])
+                                         callbacks=[LearningRateLogger(), IncreaseFramsesOut()])
     
     trainer.fit(model, train_dataloader=train_loader, val_dataloaders=val_loader)
     
