@@ -15,6 +15,7 @@ from utils import Downsample, Normalise, Rotate, Flip, Noise
 import random
 import math
 from functools import partial
+from pytorch_lightning.callbacks import LearningRateLogger
 
 
 class SplineActivation(nn.Module):
@@ -190,29 +191,6 @@ class ResNet(LightningModule):
         self.logger.experiment.add_image("train_u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         return outputs    
     
-    def on_epoch_end(self):
-        # log model weights
-        for i, module in enumerate(self.flow):
-            # conv kernels
-            self.logger.experiment.add_histogram("_conv", module.conv.weight, i)
-            for c in range(self.kernel_size[0]):
-                self.logger.experiment.add_image("kernel/layer-{}".format(i), mg(module.conv.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)
-            
-            # log attention 
-            if hasattr(module.attention, "project"):
-                self.logger.experiment.add_histogram("_soft-attention", module.attention.project.weight, i)
-                for c in range(self.kernel_size[0]):
-                    self.logger.experiment.add_image("_soft-attention/layer-{}".format(i), mg(module.conv.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)
-            elif hasattr(module.attention, "query"):
-                self.logger.experiment.add_histogram("_seft-attention/query", module.attention.query.weight, i)
-                self.logger.experiment.add_histogram("_seft-attention/key", module.attention.key.weight, i)
-                self.logger.experiment.add_histogram("_seft-attention/value", module.attention.value.weight, i)
-                for c in range(self.kernel_size[0]):
-                    self.logger.experiment.add_image("_soft-attention/query-{}".format(i), mg(module.attention.query.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)
-                    self.logger.experiment.add_image("_soft-attention/key-{}".format(i), mg(module.attention.key.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)
-                    self.logger.experiment.add_image("_soft-attention/value-{}".format(i), mg(module.attention.query.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)     
-        return
-    
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
         batch = batch.float()
@@ -243,13 +221,12 @@ class ResNet(LightningModule):
     
     @torch.no_grad()
     def validation_step_end(self, outputs):
-        x, y_hat, y = outputs["out"]
-        
         # log loss
         for k, v in outputs["log"].items():
             self.logger.experiment.add_scalar(k, v, self._val_steps_done)
         
         # log outputs as images
+        x, y_hat, y = outputs["out"]
         i = random.randint(0, y_hat.size(0) - 1)
         nrow, normalise = 10, True
         self.logger.experiment.add_image("val_w/input", mg(x[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
@@ -261,8 +238,27 @@ class ResNet(LightningModule):
         self.logger.experiment.add_image("val_v/truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("val_u/pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("val_u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        return outputs
-        
+        return
+    
+    def on_epoch_end(self):
+        # log model weights
+        for i, module in enumerate(self.flow):
+            # conv kernels
+            self.logger.experiment.add_image("kernel/layer-{}".format(i), mg(module.conv.weight[0], nrow=self.n_filters, normalize=True), self.current_epoch)
+            
+            # log attention 
+            if hasattr(module.attention, "project"):
+                self.logger.experiment.add_histogram("_soft-attention", module.attention.project.weight, i)
+                self.logger.experiment.add_image("_soft-attention/layer-{}".format(i), mg(module.conv.weight[0], nrow=self.n_filters, normalize=True), self.current_epoch)
+            elif hasattr(module.attention, "query"):
+                self.logger.experiment.add_histogram("_seft-attention/query", module.attention.query.weight, i)
+                self.logger.experiment.add_histogram("_seft-attention/key", module.attention.key.weight, i)
+                self.logger.experiment.add_histogram("_seft-attention/value", module.attention.value.weight, i)
+                self.logger.experiment.add_image("_seft-attention/query-{}".format(i), mg(module.attention.query.weight[0], nrow=self.n_filters, normalize=True), self.current_epoch)
+                self.logger.experiment.add_image("_seft-attention/key-{}".format(i), mg(module.attention.key.weight[0], nrow=self.n_filters, normalize=True), self.current_epoch)
+                self.logger.experiment.add_image("_seft-attention/value-{}".format(i), mg(module.attention.query.weight[0], nrow=self.n_filters, normalize=True), self.current_epoch)     
+        return
+            
 def collate(batch):
     x = torch.stack([torch.as_tensor(t) for t in batch], 0)
     return x
@@ -301,13 +297,15 @@ if __name__ == "__main__":
     args = parser.parse_args()    
     utils.DEBUG = args.debug
     
+    # define loss weights
     loss_weights = {
         "recon_loss": args.recon_loss,
         "space_grad_loss": args.space_grad_loss,
         "energy_loss": args.energy_loss,
         "time_grad_loss": args.time_grad_loss
     }
-
+    
+    # define model
     model = ResNet(n_layers=args.n_layers,
                    n_filters=args.n_filters,
                    kernel_size=tuple(args.kernel_size),
@@ -318,20 +316,26 @@ if __name__ == "__main__":
                    attention=args.attention,
                    lr=args.lr)
     
+    # print debug info
     log(model)
     log("parameters: {}".format(model.parameters_count()))
-    
-    
-    augment = t.Compose([torch.as_tensor, Normalise(), Rotate(), Flip(), Noise(args.frames_in)])
-    train_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=augment, squeeze=True, keys=["spiral_params3.hdf5", "three_points_params3.hdf5"])
-    val_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=Normalise(), squeeze=True, keys=["heartbeat_params3.hdf5"])
-    
+
+    # train_dataloader
+    train_transform = t.Compose([torch.as_tensor, Normalise(), Rotate(), Flip(), Noise(args.frames_in)])
+    train_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=train_transform, squeeze=True, keys=["spiral_params3.hdf5", "three_points_params3.hdf5"])
     train_loader = DataLoader(train_fkset, batch_size=args.batch_size, collate_fn=collate, shuffle=True, num_workers=args.n_workers)
+    
+    # val_dataloader
+    val_transform = t.Compose([torch.as_tensor, Normalise()])
+    val_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=val_transform, squeeze=True, keys=["heartbeat_params3.hdf5"])
     val_loader = DataLoader(val_fkset, batch_size=args.batch_size, collate_fn=collate, num_workers=args.n_workers)
 
     trainer = Trainer.from_argparse_args(parser,
                                          fast_dev_run=args.debug,
                                          default_root_dir="lightning_logs/resnet",
-                                         profiler=args.debug)
+                                         profiler=args.debug,
+                                         callbacks=[LearningRateLogger()])
+    
+    # begin training
     trainer.fit(model, train_dataloader=train_loader, val_dataloaders=val_loader)
     

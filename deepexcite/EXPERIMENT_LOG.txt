@@ -8,3 +8,8 @@
 	- Added validation. Training on "spiral_params3.hdf5" and "three_points_params3"
           validating on "heartbeat_params3.hdf5".
           Performs well, does not overfit.
+
+- resnet/version_513:
+	- Added random noise for data augmentation.
+	  We observe, considered also other runs, that as soon as 
+	  the learning rate is scaled down to 1e-4, the training is more stable
