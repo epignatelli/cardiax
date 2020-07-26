@@ -8,7 +8,7 @@ import torchvision.transforms as t
 from torch.utils.data import DataLoader
 from torchvision.utils import make_grid as mg
 import utils
-from utils import log
+from utils import log, scream
 from utils import Elu
 from utils import time_grad, space_grad_mse_loss, time_grad_mse_loss, energy_mse_loss
 from utils import Downsample, Normalise, Rotate, Flip, Noise
@@ -16,8 +16,28 @@ import random
 import math
 from functools import partial
 from pytorch_lightning.callbacks import LearningRateLogger
+from pytorch_lightning.callbacks.base import Callback
 
 
+class IncreaseFramsesOut(Callback):
+    def __init__(self, monitor="loss", trigger_at=1e-3, max_value=5):
+        self.monitor = monitor
+        self.trigger_at = trigger_at
+        self.max_value = max_value
+        
+    def on_epoch_end(self, trainer, pl_module):
+        loss = trainer.callback_metrics.get(self.monitor)
+        if loss <= self.trigger_at:
+            if trainer.model.frames_out >= self.max_value:
+                print("Epoch\t{}: hit max number of output frames {}".format(trainer.current_epoch, trainer.model.frames_out))
+                return
+            trainer.model.frames_out += 1
+            trainer.train_dataloader.dataset.frames_out += 1
+            trainer.val_dataloaders[0].dataset.frames_out += 1
+            print("Epoch\t{}: increasing number of output frames at {}".format(trainer.current_epoch, trainer.model.frames_out))
+        return
+
+    
 class SplineActivation(nn.Module):
     def __init__(self, degree):
         super(SplineActivation, self).__init__()
@@ -149,25 +169,26 @@ class ResNet(LightningModule):
         x = batch[:, :self.frames_in]
         y = batch[:, self.frames_in:]
         
-        output_sequence = torch.empty_like(y)
+        output_sequence = torch.empty_like(y, requires_grad=False, device="cpu")
         loss = {}
         for i in range(self.frames_out):
             # forward pass
-            output_sequence[:, i] = self(x).squeeze()
+            y_hat = self(x).squeeze()
             
             # calculate loss
-            current_loss = self.get_loss(output_sequence[:, i], y[:, i])
+            current_loss = self.get_loss(y_hat, y[:, i])
             total_loss = sum(current_loss.values())
             for k, v in current_loss.items():
-                loss.update({k: (loss.get(k, 0.) + v).detach()})  # detach partial losses since they're not useful anymore for backprop
+                loss.update({k: (loss.get(k, 0.) + v)})  # detach partial losses since they're not useful anymore for backprop
             
             # backward pass
             total_loss.backward(retain_graph=self.frames_out > 1)
             
             # update sequence and truncate gradient propagation
             if (self.frames_out > 1):
-                output_sequence[:, i] = output_sequence[:, i].detach()
-                x = torch.stack([x[:, -1], output_sequence[:, i]], dim=1).detach()
+                y_hat = y_hat.detach()
+                x = torch.stack([x[:, -1], y_hat], dim=1).detach()
+                output_sequence[:, i] = y_hat.cpu()
             
         # logging losses
         logs = {"train_loss/" + k: v for k, v in loss.items()}
@@ -256,10 +277,10 @@ class ResNet(LightningModule):
                 self.logger.experiment.add_histogram("_seft-attention/value", module.attention.value.weight, i)
                 self.logger.experiment.add_image("_seft-attention/query-{}".format(i), mg(module.attention.query.weight[0], nrow=self.n_filters, normalize=True), self.current_epoch)
                 self.logger.experiment.add_image("_seft-attention/key-{}".format(i), mg(module.attention.key.weight[0], nrow=self.n_filters, normalize=True), self.current_epoch)
-                self.logger.experiment.add_image("_seft-attention/value-{}".format(i), mg(module.attention.query.weight[0], nrow=self.n_filters, normalize=True), self.current_epoch)     
+                self.logger.experiment.add_image("_seft-attention/value-{}".format(i), mg(module.attention.query.weight[0], nrow=self.n_filters, normalize=True), self.current_epoch)
         return
 
-
+    
 if __name__ == "__main__":
     from argparse import ArgumentParser
     
@@ -278,6 +299,7 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=0.001)
     
     parser.add_argument('--debug', default=False, action="store_true")
+    parser.add_argument('--check', default=False, action="store_true")
     parser.add_argument('--root', type=str, default="/media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/")
     parser.add_argument('--filename', type=str, default="/media/SSD1/epignatelli/train_dev_set/spiral_params5.hdf5")
     parser.add_argument('--gpus', type=str, default="0")
@@ -330,7 +352,10 @@ if __name__ == "__main__":
                                          fast_dev_run=args.debug,
                                          default_root_dir="lightning_logs/resnet",
                                          profiler=args.debug,
-                                         callbacks=[LearningRateLogger()])
+                                         log_gpu_memory="all" if (args.check or args.debug) else None,
+                                         train_percent_check=0.01 if args.check else 1.0,
+                                         val_percent_check=0.01 if args.check else 1.0,
+                                         callbacks=[LearningRateLogger(), IncreaseFramsesOut(trigger_at=1.)])
     
     # begin training
     trainer.fit(model, train_dataloader=train_loader, val_dataloaders=val_loader)
