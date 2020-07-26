@@ -97,7 +97,7 @@ class ResidualBlock(nn.Module):
         dx = self.conv(x)
         dx = self.activation(dx)
         log("conv: ", dx.shape)
-        return dx + x
+        return dx + x + a
     
     
 class ResNet(LightningModule):
@@ -261,6 +261,11 @@ class ResNet(LightningModule):
         self.logger.experiment.add_image("val_u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         return
     
+    def on_epoch_start(self):
+        # add graph with a randomly-sized input
+        self.logger.experiment.add_graph(self, torch.randn((16, self.frames_in, 3, 256, 256), device=self.inlet.bias.device))        
+        return
+    
     def on_epoch_end(self):
         # log model weights
         for i, module in enumerate(self.flow):
@@ -355,7 +360,7 @@ if __name__ == "__main__":
                                          log_gpu_memory="all" if (args.check or args.debug) else None,
                                          train_percent_check=0.01 if args.check else 1.0,
                                          val_percent_check=0.01 if args.check else 1.0,
-                                         callbacks=[LearningRateLogger(), IncreaseFramsesOut(trigger_at=1.)])
+                                         callbacks=[LearningRateLogger(), IncreaseFramsesOut()])
     
     # begin training
     trainer.fit(model, train_dataloader=train_loader, val_dataloaders=val_loader)
