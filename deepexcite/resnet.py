@@ -169,8 +169,8 @@ class ResNet(LightningModule):
                 x = torch.stack([x[:, -1], output_sequence[:, i]], dim=1).detach()
             
         # logging losses
-        logs = {"train_loss/" + k: v.detach() for k, v in loss.items()}
-        logs["train_loss/total_loss"] = total_loss.detach()
+        logs = {"train_loss/" + k: v for k, v in loss.items()}
+        logs["train_loss/total_loss"] = total_loss
         return {"loss": total_loss, "log": logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
     
     def training_step_end(self, outputs):
@@ -190,7 +190,7 @@ class ResNet(LightningModule):
         self.logger.experiment.add_image("train_u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         return outputs    
     
-    def training_epoch_end(self, outputs):
+    def on_epoch_end(self):
         # log model weights
         for i, module in enumerate(self.flow):
             # conv kernels
@@ -211,7 +211,7 @@ class ResNet(LightningModule):
                     self.logger.experiment.add_image("_soft-attention/query-{}".format(i), mg(module.attention.query.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)
                     self.logger.experiment.add_image("_soft-attention/key-{}".format(i), mg(module.attention.key.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)
                     self.logger.experiment.add_image("_soft-attention/value-{}".format(i), mg(module.attention.query.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)     
-        return outputs
+        return
     
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
