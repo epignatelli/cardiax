@@ -8,9 +8,13 @@ import torchvision.transforms as t
 from torch.utils.data import DataLoader
 from torchvision.utils import make_grid as mg
 import utils
-from utils import log, time_grad, space_grad_mse_loss, time_grad_mse_loss, energy_mse_loss, Elu, Downsample, Normalise, Rotate, Flip
+from utils import log
+from utils import Elu
+from utils import time_grad, space_grad_mse_loss, time_grad_mse_loss, energy_mse_loss
+from utils import Downsample, Normalise, Rotate, Flip, Noise
 import random
 import math
+from functools import partial
 
 
 class SplineActivation(nn.Module):
@@ -136,7 +140,7 @@ class ResNet(LightningModule):
     def configure_optimizers(self):
         optimisers = [torch.optim.Adam(self.parameters(), lr=self.lr)]
         schedulers = [{
-            'scheduler': torch.optim.lr_scheduler.ReduceLROnPlateau(optimisers[0], verbose=True, min_lr=1e-8),
+            'scheduler': torch.optim.lr_scheduler.ReduceLROnPlateau(optimisers[0], verbose=True, min_lr=1e-6),
             'monitor': 'loss'}]
         return optimisers, schedulers
     
@@ -147,7 +151,7 @@ class ResNet(LightningModule):
         output_sequence = torch.empty_like(y)
         loss = {}
         for i in range(self.frames_out):
-            # forward model
+            # forward pass
             output_sequence[:, i] = self(x).squeeze()
             
             # calculate loss
@@ -156,18 +160,18 @@ class ResNet(LightningModule):
             for k, v in current_loss.items():
                 loss.update({k: (loss.get(k, 0.) + v).detach()})  # detach partial losses since they're not useful anymore for backprop
             
-            # backward
+            # backward pass
             total_loss.backward(retain_graph=self.frames_out > 1)
             
+            # update sequence and truncate gradient propagation
             if (self.frames_out > 1):
-                # update sequence
                 output_sequence[:, i] = output_sequence[:, i].detach()
                 x = torch.stack([x[:, -1], output_sequence[:, i]], dim=1).detach()
             
         # logging losses
-        logs = {"train_loss/" + k: v for k, v in loss.items()}
-        logs["train_loss/total_loss"] = total_loss
-        return {"loss": total_loss, "val_loss": total_loss, "log": logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
+        logs = {"train_loss/" + k: v.detach() for k, v in loss.items()}
+        logs["train_loss/total_loss"] = total_loss.detach()
+        return {"loss": total_loss, "log": logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
     
     def training_step_end(self, outputs):
         x, y_hat, y = outputs["out"]
@@ -186,7 +190,7 @@ class ResNet(LightningModule):
         self.logger.experiment.add_image("train_u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         return outputs    
     
-    def train_epoch_end(self, outputs):
+    def training_epoch_end(self, outputs):
         # log model weights
         for i, module in enumerate(self.flow):
             # conv kernels
@@ -209,6 +213,7 @@ class ResNet(LightningModule):
                     self.logger.experiment.add_image("_soft-attention/value-{}".format(i), mg(module.attention.query.weight[0, :, c].unsqueeze(1), nrow=self.n_filters, normalize=True), self.current_epoch)     
         return outputs
     
+    @torch.no_grad()
     def validation_step(self, batch, batch_idx):
         batch = batch.float()
         x = batch[:, :self.frames_in]
@@ -236,7 +241,7 @@ class ResNet(LightningModule):
         self._val_steps_done += 1
         return {"loss": total_loss, "log": logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
     
-#     @torch.no_grad()
+    @torch.no_grad()
     def validation_step_end(self, outputs):
         x, y_hat, y = outputs["out"]
         
@@ -260,14 +265,6 @@ class ResNet(LightningModule):
         
 def collate(batch):
     x = torch.stack([torch.as_tensor(t) for t in batch], 0)
-    
-#     # random rotate
-    if random.random() > 0.5:
-        x = torch.rot90(x, k=random.randint(1, 3), dims=(-2, -1))
-
-#     # random flip
-    if random.random() > 0.5:
-        x = torch.flip(x, dims=(random.randint(-2, -1), ))
     return x
 
 
@@ -324,7 +321,9 @@ if __name__ == "__main__":
     log(model)
     log("parameters: {}".format(model.parameters_count()))
     
-    train_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=Normalise(), squeeze=True, keys=["spiral_params3.hdf5", "three_points_params3.hdf5"])
+    
+    augment = t.Compose([torch.as_tensor, Normalise(), Rotate(), Flip(), Noise(args.frames_in)])
+    train_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=augment, squeeze=True, keys=["spiral_params3.hdf5", "three_points_params3.hdf5"])
     val_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=Normalise(), squeeze=True, keys=["heartbeat_params3.hdf5"])
     
     train_loader = DataLoader(train_fkset, batch_size=args.batch_size, collate_fn=collate, shuffle=True, num_workers=args.n_workers)

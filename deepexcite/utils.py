@@ -83,6 +83,17 @@ class Rotate:
             x = torch.rot90(x, k=random.randint(1, 3), dims=(-2, -1))
         return x
     
+    
+class Noise:
+    def __init__(self, frames_in, scale=0.1):
+        self.frames_in = frames_in
+        self.scale = scale
+        
+    def __call__(self, x):
+        if random.random() > 0.5:
+            x[:self.frames_in] = x[:self.frames_in] + torch.empty(x[:self.frames_in].shape).normal_(mean=x.mean(), std=1) * self.scale
+        return x    
+    
 
 class Flatten(nn.Module):	
     def forward(self, input):	
