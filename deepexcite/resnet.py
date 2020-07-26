@@ -20,13 +20,16 @@ from pytorch_lightning.callbacks.base import Callback
 
 
 class IncreaseFramsesOut(Callback):
-    def __init__(self, monitor="loss", trigger_at=1e-3, max_value=5):
+    def __init__(self, monitor="loss", trigger_at=1.6e-3, max_value=5):
         self.monitor = monitor
         self.trigger_at = trigger_at
         self.max_value = max_value
         
     def on_epoch_end(self, trainer, pl_module):
         loss = trainer.callback_metrics.get(self.monitor)
+        if loss is None:
+            print("WARNING: IncreaseFramesOut callback failed. Cannot retrieve metric {}".format(self.monitor))
+            return
         if loss <= self.trigger_at:
             if trainer.model.frames_out >= self.max_value:
                 print("Epoch\t{}: hit max number of output frames {}".format(trainer.current_epoch, trainer.model.frames_out))
@@ -103,7 +106,7 @@ class ResidualBlock(nn.Module):
     
     
 class ResNet(LightningModule):
-    def __init__(self, n_layers, n_filters, kernel_size, residual_step, activation, frames_in, frames_out, step, loss_weights={}, attention="self", lr=0.001):
+    def __init__(self, n_layers, n_filters, kernel_size, residual_step, activation, frames_in, frames_out, step, loss_weights={}, attention="self", lr=0.001, profile=False):
         super().__init__()
         self.save_hyperparameters()
         self.n_layers = n_layers
@@ -117,8 +120,10 @@ class ResNet(LightningModule):
         self.loss_weights = loss_weights
         self.attention = attention
         self.lr = lr
+        self.profile = profile
         
         self._val_steps_done = 0
+        self._log_gpu_mem_step = 0
         
         padding = tuple([math.floor(x / 2) for x in kernel_size])
         self.inlet = nn.Conv3d(self.frames_in, n_filters, kernel_size=kernel_size, stride=1, padding=padding)
@@ -167,6 +172,15 @@ class ResNet(LightningModule):
             'monitor': 'loss'}]
         return optimisers, schedulers
     
+    def profile_gpu_memory(self):
+        if not self.profile:
+            return
+        memory = torch.cuda.memory_allocated(self.inlet.bias.device) / 1024 / 1024
+        self.logger.experiment.add_scalar("gpu_mem", memory, self._log_gpu_mem_step)
+        log("gpu_memory", memory)
+        self._log_gpu_mem_step += 1
+        return
+    
     def training_step(self, batch, batch_idx):
         x = batch[:, :self.frames_in]
         y = batch[:, self.frames_in:]
@@ -175,22 +189,29 @@ class ResNet(LightningModule):
         loss = {}
         for i in range(self.frames_out):
             # forward pass
+            self.profile_gpu_memory()
             y_hat = self(x).squeeze()
+            self.profile_gpu_memory()
             
             # calculate loss
             current_loss = self.get_loss(y_hat, y[:, i])
+            y_hat = y_hat.detach()
             total_loss = sum(current_loss.values())
             for k, v in current_loss.items():
                 loss.update({k: (loss.get(k, 0.) + v)})  # detach partial losses since they're not useful anymore for backprop
+            self.profile_gpu_memory()
             
             # backward pass
-            total_loss.backward(retain_graph=self.frames_out > 1)
+            total_loss.backward()
+            self.profile_gpu_memory()
             
             # update sequence and truncate gradient propagation
             if (self.frames_out > 1):
-                y_hat = y_hat.detach()
-                x = torch.stack([x[:, -1], y_hat], dim=1).detach()
-                output_sequence[:, i] = y_hat.cpu()
+                self.profile_gpu_memory()
+                x = torch.stack([x[:, -1], y_hat], dim=1)
+                self.profile_gpu_memory()
+                output_sequence[:, i] = y_hat
+                self.profile_gpu_memory()
             
         # logging losses
         logs = {"train_loss/" + k: v for k, v in loss.items()}
@@ -224,17 +245,24 @@ class ResNet(LightningModule):
         loss = {}
         for i in range(self.frames_out):
             # forward model
+            log("memory before forward", torch.cuda.memory_allocated(x.device))
             output_sequence[:, i] = self(x).squeeze()
+            log("memory after forward", torch.cuda.memory_allocated(x.device))
             
             # calculate loss
             current_loss = self.get_loss(output_sequence[:, i], y[:, i])
+            log("memory after get_loss", torch.cuda.memory_allocated(x.device))
             total_loss = sum(current_loss.values())
+            log("memory after loss accumulation", torch.cuda.memory_allocated(x.device))
             for k, v in current_loss.items():
                 loss.update({k: (loss.get(k, 0.) + v)})  # detach partial losses since they're not useful anymore for backprop
-                        
+            log("memory after loss dict update", torch.cuda.memory_allocated(x.device))
+            
             if (self.frames_out > 1):
                 # update sequence
+                
                 x = torch.stack([x[:, -1], output_sequence[:, i]], dim=1)
+                log("memory after sequence update", torch.cuda.memory_allocated(x.device))
             
         # logging losses
         logs = {"val_loss/" + k: v for k, v in loss.items()}
@@ -314,15 +342,15 @@ if __name__ == "__main__":
     parser.add_argument('--n_workers', type=int, default=3)
     
     # trainer args
-    parser.add_argument('--check', default=False, action="store_true")
     parser.add_argument('--debug', default=False, action="store_true")
+    parser.add_argument('--profile', default=False, action="store_true")
     parser.add_argument('--gpus', type=str, default="0")
     parser.add_argument('--row_log_interval', type=int, default=10)
     parser.add_argument('--resume_from_checkpoint', type=str, default=None)
     
     
-    args = parser.parse_args()    
-    utils.DEBUG = args.debug
+    args = parser.parse_args()
+    utils.DEBUG = DEBUG = args.debug
     
     # define loss weights
     loss_weights = {
@@ -341,7 +369,8 @@ if __name__ == "__main__":
                    frames_in=args.frames_in, frames_out=args.frames_out, step=args.step,
                    loss_weights=loss_weights,
                    attention=args.attention,
-                   lr=args.lr)
+                   lr=args.lr,
+                   profile=args.profile)
     
     # print debug info
     log(model)
@@ -350,22 +379,22 @@ if __name__ == "__main__":
     # train_dataloader
     train_transform = t.Compose([torch.as_tensor, Normalise(), Rotate(), Flip(), Noise(args.frames_in)])
     train_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=train_transform, squeeze=True, keys=["spiral_params3.hdf5", "three_points_params3.hdf5"])
-    train_loader = DataLoader(train_fkset, batch_size=args.batch_size, collate_fn=torch.stack, shuffle=True, num_workers=args.n_workers)
+    train_loader = DataLoader(train_fkset, batch_size=args.batch_size, collate_fn=torch.stack, shuffle=True, num_workers=args.n_workers, pin_memory=True)
     
     # val_dataloader
     val_transform = t.Compose([torch.as_tensor, Normalise()])
     val_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=val_transform, squeeze=True, keys=["heartbeat_params3.hdf5"])
     val_loader = DataLoader(val_fkset, batch_size=args.batch_size, collate_fn=torch.stack, num_workers=args.n_workers)
 
+    # begin training
     trainer = Trainer.from_argparse_args(parser,
                                          fast_dev_run=args.debug,
                                          default_root_dir="lightning_logs/resnet",
-                                         profiler=args.debug,
-                                         log_gpu_memory="all" if (args.check or args.debug) else None,
-                                         train_percent_check=0.01 if args.check else 1.0,
-                                         val_percent_check=0.01 if args.check else 1.0,
-                                         callbacks=[LearningRateLogger(), IncreaseFramsesOut()])
+                                         profiler=args.profile,
+                                         log_gpu_memory="all" if args.profile else None,
+                                         train_percent_check=0.01 if args.profile else 1.0,
+                                         val_percent_check=0.1 if args.profile else 1.0,
+                                         callbacks=[LearningRateLogger(), IncreaseFramsesOut(trigger_at=100)])
     
-    # begin training
     trainer.fit(model, train_dataloader=train_loader, val_dataloaders=val_loader)
     
