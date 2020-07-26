@@ -258,10 +258,6 @@ class ResNet(LightningModule):
                 self.logger.experiment.add_image("_seft-attention/key-{}".format(i), mg(module.attention.key.weight[0], nrow=self.n_filters, normalize=True), self.current_epoch)
                 self.logger.experiment.add_image("_seft-attention/value-{}".format(i), mg(module.attention.query.weight[0], nrow=self.n_filters, normalize=True), self.current_epoch)     
         return
-            
-def collate(batch):
-    x = torch.stack([torch.as_tensor(t) for t in batch], 0)
-    return x
 
 
 if __name__ == "__main__":
@@ -323,12 +319,12 @@ if __name__ == "__main__":
     # train_dataloader
     train_transform = t.Compose([torch.as_tensor, Normalise(), Rotate(), Flip(), Noise(args.frames_in)])
     train_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=train_transform, squeeze=True, keys=["spiral_params3.hdf5", "three_points_params3.hdf5"])
-    train_loader = DataLoader(train_fkset, batch_size=args.batch_size, collate_fn=collate, shuffle=True, num_workers=args.n_workers)
+    train_loader = DataLoader(train_fkset, batch_size=args.batch_size, collate_fn=torch.stack, shuffle=True, num_workers=args.n_workers)
     
     # val_dataloader
     val_transform = t.Compose([torch.as_tensor, Normalise()])
     val_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=val_transform, squeeze=True, keys=["heartbeat_params3.hdf5"])
-    val_loader = DataLoader(val_fkset, batch_size=args.batch_size, collate_fn=collate, num_workers=args.n_workers)
+    val_loader = DataLoader(val_fkset, batch_size=args.batch_size, collate_fn=torch.stack, num_workers=args.n_workers)
 
     trainer = Trainer.from_argparse_args(parser,
                                          fast_dev_run=args.debug,
