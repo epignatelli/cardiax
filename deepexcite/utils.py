@@ -21,7 +21,6 @@ def energy_mse_loss(y_hat, y, reduction="sum"):
 
 
 def time_grad(x):
-    log("time grad", x.shape)
     past = x[:, :-1]
     future = x[:, 1:]
     return future - past
@@ -34,7 +33,6 @@ def time_grad_mse_loss(y_hat, y, reduction="sum"):
 
         
 def space_grad(x):
-    log("space_grad", x.shape)
     left = x
     right = nn.functional.pad(x, [0, 1, 0, 0])[..., :, 1:]
     top = x
