@@ -7,21 +7,22 @@ import random
 
 
 class FkDataset():
-    def __init__(self, root, n_frames_in=5, n_frames_out=10, step=1,
+    def __init__(self, root, frames_in=5, frames_out=10, step=1,
                  keys=None, transform=None, squeeze=False):
         self.root = root
-        self.n_frames_in = n_frames_in
-        self.n_frames_out = n_frames_out
-        self.n_frames = n_frames_in + n_frames_out
-        self.step = step
         self.squeeze = squeeze
-        
+
         filenames = [os.path.join(root, name) for name in sorted(os.listdir(root)) if name.endswith("hdf5")]
         if keys is not None:
             filenames = [name for name in filenames 
                  if os.path.basename(name) in keys ]
-        self.datasets = [Simulation(filename, n_frames_in, n_frames_out, step, transform, squeeze) for filename in filenames]
-        
+        self.datasets = [Simulation(filename, frames_in, frames_out, step, transform, squeeze) for filename in filenames]
+                        
+        # private
+        self._frames_in = frames_in
+        self._frames_out = frames_out
+        self._step = step
+        return
 
     def __len__(self):
         return len(self.datasets[0])
@@ -29,17 +30,46 @@ class FkDataset():
     def __getitem__(self, idx):
         dataset = random.choice(self.datasets)
         sample = dataset[idx]
-
         return sample
-
+    
+    @property
+    def frames_in(self):
+        return self._frames_in
+    
+    @frames_in.setter
+    def frames_int(self, value):
+        self._frames_in = value
+        for i in range(len(self.datasets)):
+            self.datasets[i].frames_in = value
+        
+    @property
+    def frames_out(self):
+        return self._frames_out
+    
+    @frames_out.setter
+    def frames_out(self, value):
+        self._frames_out = value
+        for i in range(len(self.datasets)):
+            self.datasets[i].frames_out = value        
+        
+    @property
+    def step(self):
+        return self._step
+    
+    @step.setter
+    def step(self, value):
+        self._step = value
+        for i in range(len(self.datasets)):
+            self.datasets[i].step = value
+                
     def close(self):
         for dataset in self.datasets:
             dataset.states.file.close()
     
 class Simulation():
-    def __init__(self, filename, in_frames=1, out_frames=0, step=1, transform=None, squeeze=True):
-        self.in_frames = in_frames
-        self.out_frames = out_frames
+    def __init__(self, filename, frames_in=1, frames_out=0, step=1, transform=None, squeeze=True):
+        self.frames_in = frames_in
+        self.frames_out = frames_out
         self.step = step
         self.squeeze = squeeze
         self.transform = transform
@@ -56,10 +86,10 @@ class Simulation():
     
     def __getitem__(self, idx):
         if isinstance(idx, slice):
-            idx = slice(idx.start, idx.start + (self.in_frames + self.out_frames) * self.step, self.step)
+            idx = slice(idx.start, idx.start + (self.frames_in + self.frames_out) * self.step, self.step)
             states = np.array(self.states[idx])
         else:
-            states = np.array(self.states[idx: idx + (self.in_frames + self.out_frames) * self.step: self.step])
+            states = np.array(self.states[idx: idx + (self.frames_in + self.frames_out) * self.step: self.step])
         
         if self.transform is not None:
             states = self.transform(states)
@@ -70,7 +100,7 @@ class Simulation():
         return states
     
     def __len__(self):
-        return len(self.states) - (self.in_frames + self.out_frames) * self.step   
+        return len(self.states) - (self.frames_in + self.frames_out) * self.step   
     
     def stimulus_at_t(self, t):
         stimulated = np.zeros(self.shape)
