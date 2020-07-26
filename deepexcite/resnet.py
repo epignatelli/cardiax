@@ -97,7 +97,7 @@ class ResidualBlock(nn.Module):
         dx = self.conv(x)
         dx = self.activation(dx)
         log("conv: ", dx.shape)
-        return dx + x + a
+        return (dx * a) + x
     
     
 class ResNet(LightningModule):
@@ -205,12 +205,12 @@ class ResNet(LightningModule):
         self.logger.experiment.add_image("train_v/input", mg(x[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("train_u/input", mg(x[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("train_w/pred", mg(y_hat[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("train_w/truth", mg(y[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("train_v/pred", mg(y_hat[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("train_v/truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("train_u/pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("train_w/truth", mg(y[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("train_v/truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("train_u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        return outputs    
+        return outputs
     
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
@@ -288,8 +288,8 @@ class ResNet(LightningModule):
     
 if __name__ == "__main__":
     from argparse import ArgumentParser
-    
     parser = ArgumentParser()
+    # model args
     parser.add_argument('--frames_in', type=int, default=2)
     parser.add_argument('--frames_out', type=int, default=10)
     parser.add_argument('--step', type=int, default=5)
@@ -299,23 +299,25 @@ if __name__ == "__main__":
     parser.add_argument('--residual_step', type=int, default=5)
     parser.add_argument('--activation', type=int, default=0)
     parser.add_argument('--attention', type=str, default="none")
-    parser.add_argument('--input_size', type=int, default=256)
-    parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--lr', type=float, default=0.001)
-    
-    parser.add_argument('--debug', default=False, action="store_true")
-    parser.add_argument('--check', default=False, action="store_true")
-    parser.add_argument('--root', type=str, default="/media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/")
-    parser.add_argument('--filename', type=str, default="/media/SSD1/epignatelli/train_dev_set/spiral_params5.hdf5")
-    parser.add_argument('--gpus', type=str, default="0")
-    parser.add_argument('--row_log_interval', type=int, default=10)
-    parser.add_argument('--n_workers', type=int, default=3)
-    parser.add_argument('--resume_from_checkpoint', type=str, default=None)
-    
     parser.add_argument('--recon_loss', type=float, default=1.)
     parser.add_argument('--space_grad_loss', type=float, default=1.)
     parser.add_argument('--time_grad_loss', type=float, default=1.)
     parser.add_argument('--energy_loss', type=float, default=1.)
+    
+    # loader args
+    parser.add_argument('--root', type=str, default="/media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/")
+    parser.add_argument('--input_size', type=int, default=256)
+    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--n_workers', type=int, default=3)
+    
+    # trainer args
+    parser.add_argument('--check', default=False, action="store_true")
+    parser.add_argument('--debug', default=False, action="store_true")
+    parser.add_argument('--gpus', type=str, default="0")
+    parser.add_argument('--row_log_interval', type=int, default=10)
+    parser.add_argument('--resume_from_checkpoint', type=str, default=None)
+    
     
     args = parser.parse_args()    
     utils.DEBUG = args.debug
