@@ -1,0 +1,10 @@
+.LOG
+
+- resnet/version_399:
+	- After increasing the number of filters to 16 
+	  performs really well on 1 output frame
+
+- resnet/version_476:
+	- Added validation. Training on "spiral_params3.hdf5" and "three_points_params3"
+          validating on "heartbeat_params3.hdf5".
+          Performs well, does not overfit.
