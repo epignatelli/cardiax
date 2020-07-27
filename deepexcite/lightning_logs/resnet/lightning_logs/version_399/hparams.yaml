@@ -1,0 +1,18 @@
+activation: 0
+attention: self
+frames_in: 2
+frames_out: 1
+kernel_size: !!python/tuple
+- 3
+- 3
+- 3
+loss_weights:
+  energy_loss: 0.0
+  recon_loss: 1.0
+  space_grad_loss: 0.1
+  time_grad_loss: 1.0
+lr: 0.001
+n_filters: 16
+n_layers: 20
+residual_step: 5
+step: 5
