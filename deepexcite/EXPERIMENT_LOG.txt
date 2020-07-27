@@ -17,3 +17,8 @@
 	- The models learns denoising well
 	- Does not overfit, validation performance is very good
 	
+- resnet/version_667:
+	- Training is now performed by incrementing the number of output frames when the loss reaches a certain treshold
+	- The model fit reeeeaally well on the training set.
+	- There must be a bug because the validation dataset is stuck at predicting only one frame.
+
