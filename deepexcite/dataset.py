@@ -75,16 +75,15 @@ class Simulation():
         self.transform = transform
         
         self.filename = filename
-        file = h5py.File(self.filename, "r") 
-        self.states = file["states_256"]
-        
-#         self.stimuli = fk.io.load_stimuli(file)
-#         for i in range(len(self.stimuli)):
-#             self.stimuli[i]["field"] = np.array(self.stimuli[i]["field"])
-        self.shape = self.states.shape[-2:]
-
+        self.is_open = False
+        return
     
     def __getitem__(self, idx):
+        # lazily open the file in the process where it is requested
+        # hdf5 will fail on ddp, since the is opened in the main process
+        if not self.is_open:
+            self.open()
+            
         if isinstance(idx, slice):
             idx = slice(idx.start, idx.start + (self.frames_in + self.frames_out) * self.step, self.step)
             states = np.array(self.states[idx])
@@ -100,7 +99,15 @@ class Simulation():
         return states
     
     def __len__(self):
-        return len(self.states) - (self.frames_in + self.frames_out) * self.step   
+        # TODO(epignatelli): 2000 stands for len(self.states) and is hardcoded. Replace it with correct file shape
+        return 2000 - (self.frames_in + self.frames_out) * self.step   
+    
+    def open(self):
+        file = h5py.File(self.filename, "r") 
+        self.states = file["states_256"]
+        self.shape = self.states.shape[-2:]
+        self.is_open = True
+        return
     
     def stimulus_at_t(self, t):
         stimulated = np.zeros(self.shape)
