@@ -279,7 +279,7 @@ class ResNet(LightningModule):
 
             # update input sequence with predicted frames
             if (self.frames_out > 1):
-                x = torch.stack([x[:, -1], y_hat], dim=1)
+                x = torch.cat([x[:, -(self.frames_in - 1):], y_hat.unsqueeze(1)], dim=1)
                 self.profile_gpu_memory()
             
         # logging losses
