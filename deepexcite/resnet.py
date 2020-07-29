@@ -20,7 +20,7 @@ from pytorch_lightning.callbacks.base import Callback
 
 
 class IncreaseFramsesOut(Callback):
-    def __init__(self, monitor="loss", trigger_at=1.6e-3, max_value=5):
+    def __init__(self, monitor="loss", trigger_at=1.6e-3, max_value=20):
         self.monitor = monitor
         self.trigger_at = trigger_at
         self.max_value = max_value
@@ -108,7 +108,7 @@ class ResidualBlock(nn.Module):
 class ResNet(LightningModule):
     def __init__(self, n_layers, n_filters, kernel_size, residual_step, activation, frames_in, frames_out, step, loss_weights={}, attention="self", lr=0.001, profile=False):
         super().__init__()
-        self.save_hyperparameters()
+        # public:
         self.n_layers = n_layers
         self.n_filters = n_filters
         self.kernel_size = kernel_size
@@ -122,8 +122,9 @@ class ResNet(LightningModule):
         self.lr = lr
         self.profile = profile
         
-        self._val_steps_done = 0
-        self._log_gpu_mem_step = 0
+        # private:
+        self.register_buffer("_val_steps_done", torch.tensor(0.))
+        self.register_buffer("_log_gpu_mem_step", torch.tensor(0.))
         
         padding = tuple([math.floor(x / 2) for x in kernel_size])
         self.inlet = nn.Conv3d(self.frames_in, n_filters, kernel_size=kernel_size, stride=1, padding=padding)
@@ -149,7 +150,8 @@ class ResNet(LightningModule):
         return x
     
     def backward(self, *args):
-        # we're using truncated backprop through time, so we call the backward methods inside training_step
+        # we're using truncated backprop through time where the inputs depend on new outputs
+        # the backward methods is called inside training_step
         # we override this to do nothing
         return
     
@@ -171,7 +173,7 @@ class ResNet(LightningModule):
             'scheduler': torch.optim.lr_scheduler.ReduceLROnPlateau(optimisers[0], verbose=True, min_lr=1e-6),
             'monitor': 'loss'}]
         return optimisers, schedulers
-    
+
     def profile_gpu_memory(self):
         if not self.profile:
             return
@@ -180,16 +182,86 @@ class ResNet(LightningModule):
         log("gpu_memory", memory)
         self._log_gpu_mem_step += 1
         return
-    
+
+    def on_train_start(self):
+        # add graph with a randomly-sized input
+        self.logger.experiment.add_graph(self, torch.randn((16, self.frames_in, 3, 256, 256), device=self.inlet.bias.device))        
+        return
+        
     def training_step(self, batch, batch_idx):
         x = batch[:, :self.frames_in]
         y = batch[:, self.frames_in:]
+        self.profile_gpu_memory()
         
-        output_sequence = torch.empty_like(y, requires_grad=False, device="cpu")
+        output_sequence = torch.empty_like(y, requires_grad=False, device=self.device).type_as(x)
         loss = {}
         for i in range(self.frames_out):
             # forward pass
+            y_hat = self(x).squeeze()
             self.profile_gpu_memory()
+            
+            # calculate loss
+            current_loss = self.get_loss(y_hat, y[:, i])
+            y_hat = y_hat.detach()
+            total_loss = sum(current_loss.values())
+            for k, v in current_loss.items():
+                loss.update({k: (loss.get(k, 0.) + v)})
+            self.profile_gpu_memory()
+            
+            # backward pass
+            total_loss.backward()
+            self.profile_gpu_memory()
+            
+            # update output sequence
+            output_sequence[:, i] = y_hat
+            self.profile_gpu_memory()
+
+            # update input sequence with predicted frames
+            if (self.frames_out > 1):
+                x = torch.cat([x[:, -(self.frames_in - 1):], y_hat.unsqueeze(1)], dim=1)
+                self.profile_gpu_memory()
+            
+        # logging losses
+        logs = {"train_loss/" + k: v for k, v in loss.items()}
+        logs["train_loss/total_loss"] = total_loss
+        return {"loss": total_loss, "log": logs, "x": batch[:, :self.frames_in], "y_hat": output_sequence, "y": y}
+    
+    def training_epoch_end(self, outputs):
+        # aggregate loss
+        loss = {}
+        for i in range(len(outputs)):
+            for k, v in outputs[i]["log"].items():
+                loss.update({k: (loss.get(k, 0.) + v)})
+        for k, v in loss.items():  # mean
+            loss[k] = v / len(outputs)
+            
+        # log outputs as images
+        x = random.choice([x['x'] for x in outputs])
+        y_hat = random.choice([x['y_hat'] for x in outputs])
+        y = random.choice([x['y'] for x in outputs])
+        i = random.randint(0, y_hat.size(0) - 1)
+        nrow, normalise = 10, True
+        self.logger.experiment.add_image("train_w/input", mg(x[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("train_v/input", mg(x[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("train_u/input", mg(x[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("train_w/pred", mg(y_hat[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("train_v/pred", mg(y_hat[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("train_u/pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("train_w/truth", mg(y[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("train_v/truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("train_u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        return {"loss": loss["train_loss/total_loss"]}
+    
+    @torch.no_grad()
+    def validation_step(self, batch, batch_idx):
+        x = batch[:, :self.frames_in]
+        y = batch[:, self.frames_in:]
+        self.profile_gpu_memory()
+        
+        output_sequence = torch.empty_like(y, requires_grad=False, device=self.device).type_as(x)
+        loss = {}
+        for i in range(self.frames_out):  # 10
+            # forward pass
             y_hat = self(x).squeeze()
             self.profile_gpu_memory()
             
@@ -199,10 +271,6 @@ class ResNet(LightningModule):
             total_loss = sum(current_loss.values())
             for k, v in current_loss.items():
                 loss.update({k: (loss.get(k, 0.) + v)})  # detach partial losses since they're not useful anymore for backprop
-            self.profile_gpu_memory()
-            
-            # backward pass
-            total_loss.backward()
             self.profile_gpu_memory()
             
             # update output sequence
@@ -217,84 +285,35 @@ class ResNet(LightningModule):
         # logging losses
         logs = {"train_loss/" + k: v for k, v in loss.items()}
         logs["train_loss/total_loss"] = total_loss
-        return {"loss": total_loss, "log": logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
-    
-    def training_step_end(self, outputs):
-        # log outputs as images
-        x, y_hat, y = outputs["out"]
-        i = random.randint(0, y_hat.size(0) - 1)
-        nrow, normalise = 10, True
-        self.logger.experiment.add_image("train_w/input", mg(x[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("train_v/input", mg(x[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("train_u/input", mg(x[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("train_w/pred", mg(y_hat[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("train_v/pred", mg(y_hat[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("train_u/pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("train_w/truth", mg(y[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("train_v/truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("train_u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        return outputs
+        return {"loss": total_loss, "log": logs, "x": batch[:, :self.frames_in], "y_hat": output_sequence, "y": y}
     
     @torch.no_grad()
-    def validation_step(self, batch, batch_idx):
-        batch = batch.float()
-        x = batch[:, :self.frames_in]
-        y = batch[:, self.frames_in:]
-        
-        y_hat = torch.empty_like(y)
-        loss = {}
-        for i in range(self.frames_out):
-            # forward model
-            log("memory before forward", torch.cuda.memory_allocated(x.device))
-            y_hat[:, i] = self(x).squeeze()
-            log("memory after forward", torch.cuda.memory_allocated(x.device))
-            
-            # calculate loss
-            current_loss = self.get_loss(y_hat[:, i], y[:, i])
-            log("memory after get_loss", torch.cuda.memory_allocated(x.device))
-            total_loss = sum(current_loss.values())
-            log("memory after loss accumulation", torch.cuda.memory_allocated(x.device))
-            for k, v in current_loss.items():
-                loss.update({k: (loss.get(k, 0.) + v)})  # detach partial losses since they're not useful anymore for backprop
-            log("memory after loss dict update", torch.cuda.memory_allocated(x.device))
-            
-            if (self.frames_out > 1):
-                # update sequence
-                x = torch.stack([x[:, -1], y_hat[:, i]], dim=1)
-                log("memory after sequence update", torch.cuda.memory_allocated(x.device))
-            
-        # logging losses
-        logs = {"val_loss/" + k: v for k, v in loss.items()}
-        logs["val_loss/total_loss"] = total_loss
-        self._val_steps_done += 1
-        return {"loss": total_loss, "log": logs, "out": (batch[:, :self.frames_in], y_hat, y)}
-    
-    @torch.no_grad()
-    def validation_step_end(self, outputs):
+    def validation_epoch_end(self, outputs):
         # log loss
-        for k, v in outputs["log"].items():
-            self.logger.experiment.add_scalar(k, v, self._val_steps_done)
+        loss = {}
+        for i in range(len(outputs)):
+            for k, v in outputs[i]["log"].items():
+                loss.update({k: (loss.get(k, 0.) + v)})
+        for k, v in loss.items():
+            self.logger.experiment.add_scalar(k, v / len(outputs), self.current_epoch)
         
         # log outputs as images
-        x, y_hat, y = outputs["out"]
+        x = random.choice([x['x'] for x in outputs])
+        y_hat = random.choice([x['y_hat'] for x in outputs])
+        y = random.choice([x['y'] for x in outputs])
         i = random.randint(0, y_hat.size(0) - 1)
         nrow, normalise = 10, True
-        self.logger.experiment.add_image("val_w/input", mg(x[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("val_v/input", mg(x[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_v/input", mg(x[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_w/input", mg(x[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("val_u/input", mg(x[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("val_w/pred", mg(y_hat[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("val_w/truth", mg(y[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("val_v/pred", mg(y_hat[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("val_v/truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_v/pred", mg(y_hat[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_w/pred", mg(y_hat[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("val_u/pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_v/truth", mg(y[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_w/truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("val_u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        return
-    
-    def on_epoch_start(self):
-        # add graph with a randomly-sized input
-        self.logger.experiment.add_graph(self, torch.randn((16, self.frames_in, 3, 256, 256), device=self.inlet.bias.device))        
-        return
-    
+        return {"loss": sum(loss.values())}
+
     def on_epoch_end(self):
         # log model weights
         for i, module in enumerate(self.flow):
@@ -320,7 +339,7 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     # model args
     parser.add_argument('--frames_in', type=int, default=2)
-    parser.add_argument('--frames_out', type=int, default=10)
+    parser.add_argument('--frames_out', type=int, default=1)
     parser.add_argument('--step', type=int, default=5)
     parser.add_argument('--n_layers', type=int, default=10)
     parser.add_argument('--n_filters', type=int, default=4)
@@ -332,7 +351,7 @@ if __name__ == "__main__":
     parser.add_argument('--recon_loss', type=float, default=1.)
     parser.add_argument('--space_grad_loss', type=float, default=1.)
     parser.add_argument('--time_grad_loss', type=float, default=1.)
-    parser.add_argument('--energy_loss', type=float, default=1.)
+    parser.add_argument('--energy_loss', type=float, default=0.)
     
     # loader args
     parser.add_argument('--root', type=str, default="/media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/")
@@ -344,6 +363,7 @@ if __name__ == "__main__":
     parser.add_argument('--debug', default=False, action="store_true")
     parser.add_argument('--profile', default=False, action="store_true")
     parser.add_argument('--gpus', type=str, default="0")
+    parser.add_argument('--distributed_backend', type=str, default=None)
     parser.add_argument('--row_log_interval', type=int, default=10)
     parser.add_argument('--resume_from_checkpoint', type=str, default=None)
     
@@ -378,12 +398,12 @@ if __name__ == "__main__":
     # train_dataloader
     train_transform = t.Compose([torch.as_tensor, Normalise(), Rotate(), Flip(), Noise(args.frames_in)])
     train_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=train_transform, squeeze=True, keys=["spiral_params3.hdf5", "three_points_params3.hdf5"])
-    train_loader = DataLoader(train_fkset, batch_size=args.batch_size, collate_fn=torch.stack, shuffle=True, num_workers=args.n_workers, pin_memory=True)
+    train_loader = DataLoader(train_fkset, batch_size=args.batch_size, collate_fn=torch.stack, shuffle=True, num_workers=args.n_workers, drop_last=True, pin_memory=True)
     
     # val_dataloader
     val_transform = t.Compose([torch.as_tensor, Normalise()])
     val_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=val_transform, squeeze=True, keys=["heartbeat_params3.hdf5"])
-    val_loader = DataLoader(val_fkset, batch_size=args.batch_size, collate_fn=torch.stack, num_workers=args.n_workers)
+    val_loader = DataLoader(val_fkset, batch_size=args.batch_size, collate_fn=torch.stack, num_workers=args.n_workers, drop_last=True, pin_memory=True)
 
     # begin training
     trainer = Trainer.from_argparse_args(parser,
@@ -393,7 +413,7 @@ if __name__ == "__main__":
                                          log_gpu_memory="all" if args.profile else None,
                                          train_percent_check=0.01 if args.profile else 1.0,
                                          val_percent_check=0.1 if args.profile else 1.0,
-                                         callbacks=[LearningRateLogger(), IncreaseFramsesOut()])
+                                         callbacks=[LearningRateLogger(), IncreaseFramsesOut(trigger_at=1.6e-3 if not args.profile else 10.)])
     
     trainer.fit(model, train_dataloader=train_loader, val_dataloaders=val_loader)
     
