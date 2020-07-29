@@ -109,6 +109,8 @@ class ResNet(LightningModule):
     def __init__(self, n_layers, n_filters, kernel_size, residual_step, activation, frames_in, frames_out, step, loss_weights={}, attention="self", lr=0.001, profile=False):
         super().__init__()
         self.save_hyperparameters()
+        
+        # public:
         self.n_layers = n_layers
         self.n_filters = n_filters
         self.kernel_size = kernel_size
@@ -122,6 +124,7 @@ class ResNet(LightningModule):
         self.lr = lr
         self.profile = profile
         
+        # private:
         self._val_steps_done = 0
         self._log_gpu_mem_step = 0
         
@@ -149,7 +152,8 @@ class ResNet(LightningModule):
         return x
     
     def backward(self, *args):
-        # we're using truncated backprop through time, so we call the backward methods inside training_step
+        # we're using truncated backprop through time where the inputs depend on new outputs
+        # the backward methods is called inside training_step
         # we override this to do nothing
         return
     
@@ -180,16 +184,21 @@ class ResNet(LightningModule):
         log("gpu_memory", memory)
         self._log_gpu_mem_step += 1
         return
+        
+    def on_train_start(self):
+        # add graph with a randomly-sized input
+        self.logger.experiment.add_graph(self, torch.randn((16, self.frames_in, 3, 256, 256), device=self.inlet.bias.device))        
+        return
     
     def training_step(self, batch, batch_idx):
         x = batch[:, :self.frames_in]
         y = batch[:, self.frames_in:]
+        self.profile_gpu_memory()
         
         output_sequence = torch.empty_like(y, requires_grad=False, device="cpu")
         loss = {}
         for i in range(self.frames_out):
             # forward pass
-            self.profile_gpu_memory()
             y_hat = self(x).squeeze()
             self.profile_gpu_memory()
             
@@ -198,7 +207,7 @@ class ResNet(LightningModule):
             y_hat = y_hat.detach()
             total_loss = sum(current_loss.values())
             for k, v in current_loss.items():
-                loss.update({k: (loss.get(k, 0.) + v)})  # detach partial losses since they're not useful anymore for backprop
+                loss.update({k: (loss.get(k, 0.) + v)})
             self.profile_gpu_memory()
             
             # backward pass
@@ -211,7 +220,7 @@ class ResNet(LightningModule):
 
             # update input sequence with predicted frames
             if (self.frames_out > 1):
-                x = torch.stack([x[:, -1], y_hat], dim=1)
+                x = torch.cat([x[:, -(self.frames_in - 1):], y_hat.unsqueeze(1)], dim=1)
                 self.profile_gpu_memory()
             
         # logging losses
@@ -237,36 +246,37 @@ class ResNet(LightningModule):
     
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
-        batch = batch.float()
         x = batch[:, :self.frames_in]
         y = batch[:, self.frames_in:]
+        self.profile_gpu_memory()
         
-        y_hat = torch.empty_like(y)
+        output_sequence = torch.empty_like(y, requires_grad=False, device="cpu")
         loss = {}
         for i in range(self.frames_out):
-            # forward model
-            log("memory before forward", torch.cuda.memory_allocated(x.device))
-            y_hat[:, i] = self(x).squeeze()
-            log("memory after forward", torch.cuda.memory_allocated(x.device))
+            # forward pass
+            y_hat = self(x).squeeze()
+            self.profile_gpu_memory()
             
             # calculate loss
-            current_loss = self.get_loss(y_hat[:, i], y[:, i])
-            log("memory after get_loss", torch.cuda.memory_allocated(x.device))
+            current_loss = self.get_loss(y_hat, y[:, i])
+            y_hat = y_hat.detach()
             total_loss = sum(current_loss.values())
-            log("memory after loss accumulation", torch.cuda.memory_allocated(x.device))
             for k, v in current_loss.items():
-                loss.update({k: (loss.get(k, 0.) + v)})  # detach partial losses since they're not useful anymore for backprop
-            log("memory after loss dict update", torch.cuda.memory_allocated(x.device))
+                loss.update({k: (loss.get(k, 0.) + v)})
+            self.profile_gpu_memory()
             
+            # update output sequence
+            output_sequence[:, i] = y_hat
+            self.profile_gpu_memory()
+
+            # update input sequence with predicted frames
             if (self.frames_out > 1):
-                # update sequence
-                x = torch.stack([x[:, -1], y_hat[:, i]], dim=1)
-                log("memory after sequence update", torch.cuda.memory_allocated(x.device))
+                x = torch.cat([x[:, -(self.frames_in - 1):], y_hat.unsqueeze(1)], dim=1)
+                self.profile_gpu_memory()
             
         # logging losses
-        logs = {"val_loss/" + k: v for k, v in loss.items()}
-        logs["val_loss/total_loss"] = total_loss
-        self._val_steps_done += 1
+        logs = {"train_loss/" + k: v for k, v in loss.items()}
+        logs["train_loss/total_loss"] = total_loss
         return {"loss": total_loss, "log": logs, "out": (batch[:, :self.frames_in], y_hat, y)}
     
     @torch.no_grad()
@@ -289,12 +299,7 @@ class ResNet(LightningModule):
         self.logger.experiment.add_image("val_u/pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("val_u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         return
-    
-    def on_epoch_start(self):
-        # add graph with a randomly-sized input
-        self.logger.experiment.add_graph(self, torch.randn((16, self.frames_in, 3, 256, 256), device=self.inlet.bias.device))        
-        return
-    
+
     def on_epoch_end(self):
         # log model weights
         for i, module in enumerate(self.flow):
@@ -320,7 +325,7 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     # model args
     parser.add_argument('--frames_in', type=int, default=2)
-    parser.add_argument('--frames_out', type=int, default=10)
+    parser.add_argument('--frames_out', type=int, default=1)
     parser.add_argument('--step', type=int, default=5)
     parser.add_argument('--n_layers', type=int, default=10)
     parser.add_argument('--n_filters', type=int, default=4)
@@ -332,7 +337,7 @@ if __name__ == "__main__":
     parser.add_argument('--recon_loss', type=float, default=1.)
     parser.add_argument('--space_grad_loss', type=float, default=1.)
     parser.add_argument('--time_grad_loss', type=float, default=1.)
-    parser.add_argument('--energy_loss', type=float, default=1.)
+    parser.add_argument('--energy_loss', type=float, default=0.)
     
     # loader args
     parser.add_argument('--root', type=str, default="/media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/")
@@ -344,9 +349,9 @@ if __name__ == "__main__":
     parser.add_argument('--debug', default=False, action="store_true")
     parser.add_argument('--profile', default=False, action="store_true")
     parser.add_argument('--gpus', type=str, default="0")
+    parser.add_argument('--distributed_backend', type=str, default=None)    
     parser.add_argument('--row_log_interval', type=int, default=10)
     parser.add_argument('--resume_from_checkpoint', type=str, default=None)
-    
     
     args = parser.parse_args()
     utils.DEBUG = DEBUG = args.debug
@@ -378,12 +383,12 @@ if __name__ == "__main__":
     # train_dataloader
     train_transform = t.Compose([torch.as_tensor, Normalise(), Rotate(), Flip(), Noise(args.frames_in)])
     train_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=train_transform, squeeze=True, keys=["spiral_params3.hdf5", "three_points_params3.hdf5"])
-    train_loader = DataLoader(train_fkset, batch_size=args.batch_size, collate_fn=torch.stack, shuffle=True, num_workers=args.n_workers, pin_memory=True)
+    train_loader = DataLoader(train_fkset, batch_size=args.batch_size, collate_fn=torch.stack, shuffle=True, drop_last=True, num_workers=args.n_workers, pin_memory=True)
     
     # val_dataloader
     val_transform = t.Compose([torch.as_tensor, Normalise()])
     val_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=val_transform, squeeze=True, keys=["heartbeat_params3.hdf5"])
-    val_loader = DataLoader(val_fkset, batch_size=args.batch_size, collate_fn=torch.stack, num_workers=args.n_workers)
+    val_loader = DataLoader(val_fkset, batch_size=args.batch_size, collate_fn=torch.stack, drop_last=True, num_workers=args.n_workers, pin_memory=True)
 
     # begin training
     trainer = Trainer.from_argparse_args(parser,
@@ -393,7 +398,7 @@ if __name__ == "__main__":
                                          log_gpu_memory="all" if args.profile else None,
                                          train_percent_check=0.01 if args.profile else 1.0,
                                          val_percent_check=0.1 if args.profile else 1.0,
-                                         callbacks=[LearningRateLogger(), IncreaseFramsesOut()])
+                                         callbacks=[LearningRateLogger(), IncreaseFramsesOut(trigger_at=1.6e-3 if not args.profile else 10.)])
     
     trainer.fit(model, train_dataloader=train_loader, val_dataloaders=val_loader)
     
