@@ -20,7 +20,7 @@ from pytorch_lightning.callbacks.base import Callback
 
 
 class IncreaseFramsesOut(Callback):
-    def __init__(self, monitor="loss", trigger_at=1.6e-3, max_value=20):
+    def __init__(self, monitor="loss", trigger_at=1.6e-3, max_value=5):
         self.monitor = monitor
         self.trigger_at = trigger_at
         self.max_value = max_value
@@ -223,24 +223,12 @@ class ResNet(LightningModule):
         # logging losses
         logs = {"train_loss/" + k: v for k, v in loss.items()}
         logs["train_loss/total_loss"] = total_loss
-        return {"loss": total_loss, "log": logs, "x": batch[:, :self.frames_in], "y_hat": output_sequence, "y": y}
+        return {"loss": total_loss.detach(), "log": logs, "x": batch[:, :self.frames_in], "y_hat": output_sequence, "y": y}
     
     def training_epoch_end(self, outputs):            
         # log outputs as images
-        x = random.choice([x['x'] for x in outputs])
-        y_hat = random.choice([x['y_hat'] for x in outputs])
-        y = random.choice([x['y'] for x in outputs])
-        i = random.randint(0, y_hat.size(0) - 1)
-        nrow, normalise = 10, True
-        self.logger.experiment.add_image("train_w/input", mg(x[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("train_v/input", mg(x[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("train_u/input", mg(x[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("train_w/pred", mg(y_hat[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("train_v/pred", mg(y_hat[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("train_u/pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("train_w/truth", mg(y[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("train_v/truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("train_u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+#         sample = random.choice(outputs)
+#         self.log_images(sample["x"], sample["y_hat"], sample["y"])
         
         # average loss
         avg_loss = torch.stack([x["loss"] for x in outputs]).mean()
@@ -261,7 +249,6 @@ class ResNet(LightningModule):
             
             # calculate loss
             current_loss = self.get_loss(y_hat, y[:, i])
-            y_hat = y_hat.detach()
             total_loss = sum(current_loss.values())
             for k, v in current_loss.items():
                 loss.update({k: (loss.get(k, 0.) + v)})  # detach partial losses since they're not useful anymore for backprop
@@ -292,20 +279,9 @@ class ResNet(LightningModule):
             self.logger.experiment.add_scalar(k, v / len(outputs), self.current_epoch)
         
         # log outputs as images
-        x = random.choice([x['x'] for x in outputs])
-        y_hat = random.choice([x['y_hat'] for x in outputs])
-        y = random.choice([x['y'] for x in outputs])
-        i = random.randint(0, y_hat.size(0) - 1)
-        nrow, normalise = 10, True
-        self.logger.experiment.add_image("val_v/input", mg(x[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("val_w/input", mg(x[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("val_u/input", mg(x[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("val_v/pred", mg(y_hat[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("val_w/pred", mg(y_hat[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("val_u/pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("val_v/truth", mg(y[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("val_w/truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        self.logger.experiment.add_image("val_u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+#         sample = random.choice(outputs)
+#         self.log_images(sample["x"], sample["y_hat"], sample["y"])
+        
         # average loss
         avg_loss = torch.stack([x["loss"] for x in outputs]).mean()
         return {"loss": avg_loss}
@@ -327,6 +303,23 @@ class ResNet(LightningModule):
                 self.logger.experiment.add_image("_seft-attention/query-{}".format(i), mg(module.attention.query.weight[0], nrow=self.n_filters, normalize=True), self.current_epoch)
                 self.logger.experiment.add_image("_seft-attention/key-{}".format(i), mg(module.attention.key.weight[0], nrow=self.n_filters, normalize=True), self.current_epoch)
                 self.logger.experiment.add_image("_seft-attention/value-{}".format(i), mg(module.attention.query.weight[0], nrow=self.n_filters, normalize=True), self.current_epoch)
+        return
+    
+    def log_images(self, x, y_hat, y):
+        assert x.ndim == 5, "Images to log must be 5-D, (BATCH_SIZE, SEQ_LEN, CHANNELS, WIDTH, HEIGHT)"
+        x = random.choice(x).detach().cpu()
+        y_hat = random.choice(y_hat).detach().cpu()
+        y = random.choice(y).detach().cpu()
+        nrow, normalise = 10, True
+        self.logger.experiment.add_image("val_v/input", mg(x[:, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_w/input", mg(x[:, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_u/input", mg(x[:, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_v/pred", mg(y_hat[:, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_w/pred", mg(y_hat[:, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_u/pred", mg(y_hat[:, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_v/truth", mg(y[:, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_w/truth", mg(y[:, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
+        self.logger.experiment.add_image("val_u/truth", mg(y[:, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)        
         return
 
     
@@ -354,6 +347,7 @@ if __name__ == "__main__":
     parser.add_argument('--input_size', type=int, default=256)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--n_workers', type=int, default=3)
+    parser.add_argument('--preload_dataset', default=False, action="store_true")
     
     # trainer args
     parser.add_argument('--debug', default=False, action="store_true")
@@ -393,12 +387,12 @@ if __name__ == "__main__":
 
     # train_dataloader
     train_transform = t.Compose([torch.as_tensor, Normalise(), Rotate(), Flip(), Noise(args.frames_in)])
-    train_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=train_transform, squeeze=True, keys=["spiral_params3.hdf5", "three_points_params3.hdf5"])
+    train_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=train_transform, squeeze=True, keys=["spiral_params3.hdf5", "three_points_params3.hdf5"], preload=args.preload_dataset)
     train_loader = DataLoader(train_fkset, batch_size=args.batch_size, collate_fn=torch.stack, shuffle=True, num_workers=args.n_workers, drop_last=True, pin_memory=True)
     
     # val_dataloader
     val_transform = t.Compose([torch.as_tensor, Normalise()])
-    val_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=val_transform, squeeze=True, keys=["heartbeat_params3.hdf5"])
+    val_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=val_transform, squeeze=True, keys=["heartbeat_params3.hdf5"], preload=args.preload_dataset)
     val_loader = DataLoader(val_fkset, batch_size=args.batch_size, collate_fn=torch.stack, num_workers=args.n_workers, drop_last=True, pin_memory=True)
 
     # begin training
