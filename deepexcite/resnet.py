@@ -123,7 +123,6 @@ class ResNet(LightningModule):
         self.profile = profile
         
         # private:
-        self.register_buffer("_val_steps_done", torch.tensor(0.))
         self.register_buffer("_log_gpu_mem_step", torch.tensor(0.))
         
         padding = tuple([math.floor(x / 2) for x in kernel_size])
@@ -226,15 +225,7 @@ class ResNet(LightningModule):
         logs["train_loss/total_loss"] = total_loss
         return {"loss": total_loss, "log": logs, "x": batch[:, :self.frames_in], "y_hat": output_sequence, "y": y}
     
-    def training_epoch_end(self, outputs):
-        # aggregate loss
-        loss = {}
-        for i in range(len(outputs)):
-            for k, v in outputs[i]["log"].items():
-                loss.update({k: (loss.get(k, 0.) + v)})
-        for k, v in loss.items():  # mean
-            loss[k] = v / len(outputs)
-            
+    def training_epoch_end(self, outputs):            
         # log outputs as images
         x = random.choice([x['x'] for x in outputs])
         y_hat = random.choice([x['y_hat'] for x in outputs])
@@ -250,7 +241,10 @@ class ResNet(LightningModule):
         self.logger.experiment.add_image("train_w/truth", mg(y[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("train_v/truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("train_u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        return {"loss": loss["train_loss/total_loss"]}
+        
+        # average loss
+        avg_loss = torch.stack([x["loss"] for x in outputs]).mean()
+        return {"loss": avg_loss}
     
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
