@@ -275,8 +275,8 @@ class ResNet(LightningModule):
                 self.profile_gpu_memory()
             
         # logging losses
-        logs = {"train_loss/" + k: v for k, v in loss.items()}
-        logs["train_loss/total_loss"] = total_loss
+        logs = {"val_loss/" + k: v for k, v in loss.items()}
+        logs["val_loss/total_loss"] = total_loss
         return {"loss": total_loss, "log": logs, "out": (batch[:, :self.frames_in], y_hat, y)}
     
     @torch.no_grad()
@@ -284,6 +284,7 @@ class ResNet(LightningModule):
         # log loss
         for k, v in outputs["log"].items():
             self.logger.experiment.add_scalar(k, v, self._val_steps_done)
+            self._val_steps_done += 1
         
         # log outputs as images
         x, y_hat, y = outputs["out"]
