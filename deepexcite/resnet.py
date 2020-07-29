@@ -306,7 +306,9 @@ class ResNet(LightningModule):
         self.logger.experiment.add_image("val_v/truth", mg(y[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("val_w/truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("val_u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        return {"loss": sum(loss.values())}
+        # average loss
+        avg_loss = torch.stack([x["loss"] for x in outputs]).mean()
+        return {"loss": avg_loss}
 
     def on_epoch_end(self):
         # log model weights
