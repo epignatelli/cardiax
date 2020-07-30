@@ -20,7 +20,7 @@ from pytorch_lightning.callbacks.base import Callback
 
 
 class IncreaseFramsesOut(Callback):
-    def __init__(self, monitor="loss", trigger_at=1.6e-3, max_value=5):
+    def __init__(self, monitor="loss", trigger_at=1.6e-3, max_value=20):
         self.monitor = monitor
         self.trigger_at = trigger_at
         self.max_value = max_value
@@ -277,7 +277,7 @@ class ResNet(LightningModule):
         # logging losses
         logs = {"val_loss/" + k: v for k, v in loss.items()}
         logs["val_loss/total_loss"] = total_loss
-        return {"loss": total_loss, "log": logs, "out": (batch[:, :self.frames_in], y_hat, y)}
+        return {"loss": total_loss, "log": logs, "out": (batch[:, :self.frames_in], output_sequence, y)}
     
     @torch.no_grad()
     def validation_step_end(self, outputs):
