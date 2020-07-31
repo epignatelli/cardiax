@@ -37,6 +37,7 @@ class IncreaseFramsesOut(Callback):
             pl_module.frames_out += 1
             trainer.train_dataloader.dataset.frames_out += 1
             trainer.val_dataloaders[0].dataset.frames_out += 1
+            assert pl_module.frames_out.item() == trainer.train_dataloader.dataset.frames_out == trainer.val_dataloaders[0].dataset.frames_out
             print("Epoch\t{}: increasing number of output frames at {}".format(trainer.current_epoch, pl_module.frames_out))
         else:
             print("Epoch\t{}: keeping the same number of output frames at {}".format(trainer.current_epoch, pl_module.frames_out))
@@ -389,7 +390,7 @@ if __name__ == "__main__":
                                          default_root_dir="lightning_logs/resnet",
                                          profiler=args.profile,
                                          log_gpu_memory="all" if args.profile else None,
-                                         train_percent_check=0.01 if args.profile else 1.0,
+                                         train_percent_check=0.1 if args.profile else 1.0,
                                          val_percent_check=0.1 if args.profile else 1.0,
                                          checkpoint_callback=ModelCheckpoint(save_last=True, save_top_k=2),
                                          callbacks=[LearningRateLogger(), IncreaseFramsesOut(trigger_at=1.6e-3 if not args.profile else 10.)])
