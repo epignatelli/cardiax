@@ -32,15 +32,17 @@ class IncreaseFramsesOut(Callback):
             return
         if loss <= self.trigger_at:
             if pl_module.frames_out >= self.max_value:
-                print("Epoch\t{}: hit max number of output frames {}".format(trainer.current_epoch, pl_module.frames_out))
+                print("Epoch\t{}: hit max number of output frames {}".format(trainer.current_epoch + 1, pl_module.frames_out))
                 return
             pl_module.frames_out += 1
             trainer.train_dataloader.dataset.frames_out += 1
             trainer.val_dataloaders[0].dataset.frames_out += 1
             assert pl_module.frames_out.item() == trainer.train_dataloader.dataset.frames_out == trainer.val_dataloaders[0].dataset.frames_out
-            print("Epoch\t{}: increasing number of output frames at {}".format(trainer.current_epoch, pl_module.frames_out))
+            print("Epoch\t{}: increasing number of output frames at {}".format(trainer.current_epoch + 1, pl_module.frames_out))
         else:
-            print("Epoch\t{}: keeping the same number of output frames at {}".format(trainer.current_epoch, pl_module.frames_out))
+            print("Epoch\t{}: keeping the same number of output frames at {}".format(trainer.current_epoch + 1, pl_module.frames_out))
+        # log event
+        pl_module.logger.experiment.add_scalar("frames_out", pl_module.frames_out, trainer.current_epoch + 1)
         return
 
     
@@ -198,7 +200,7 @@ class ResNet(LightningModule):
     
     def training_step(self, batch, batch_idx):
         x = batch[:, :self.frames_in]
-        y = batch[:, self.frames_in:]
+        y = batch[:, -self.frames_out:]
         self.profile_gpu_memory()
         
         output_sequence = torch.empty_like(y, requires_grad=False, device="cpu")
