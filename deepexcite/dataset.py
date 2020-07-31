@@ -75,13 +75,19 @@ class Simulation():
         self.squeeze = squeeze
         self.transform = transform
         self.filename = filename
+        self.states = None
         
         # private:
-        self._states = None
+        self._length = None
         self._is_open = False
+        
+        # init:
+        self._set_length()
         return
     
     def __getitem__(self, idx):
+        if not self._is_open:
+            self.open()
         if isinstance(idx, slice):
             idx = slice(idx.start, idx.start + (self.frames_in + self.frames_out) * self.step, self.step)
             states = np.array(self.states[idx])
@@ -97,17 +103,16 @@ class Simulation():
         return states
     
     def __len__(self):
-        return len(self.states) - (self.frames_in + self.frames_out) * self.step   
+        return self._length
     
-    @property
-    def states(self):
-        if not self._is_open:
-            self.open()
-        return self._states
+    def _set_length(self):
+        with h5py.File(self.filename, "r") as f:
+            self._length = len(f["states_256"]) - (self.frames_in + self.frames_out) * self.step  
+        return
     
     def open(self):
         file = h5py.File(self.filename, "r") 
-        self._states = file["states_256"]
+        self.states = file["states_256"]
         self._is_open = True
         return
     
