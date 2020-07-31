@@ -331,9 +331,11 @@ if __name__ == "__main__":
     
     # loader args
     parser.add_argument('--root', type=str, default="/media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/")
+    parser.add_argument('--paramset', type=str, default="3")
     parser.add_argument('--input_size', type=int, default=256)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--n_workers', type=int, default=3)
+    
     
     # trainer args
     parser.add_argument('--debug', default=False, action="store_true")
@@ -372,12 +374,13 @@ if __name__ == "__main__":
 
     # train_dataloader
     train_transform = t.Compose([torch.as_tensor, Normalise(), Rotate(), Flip(), Noise(args.frames_in)])
-    train_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=train_transform, squeeze=True, keys=["spiral_params3.hdf5", "three_points_params3.hdf5"])
+    training_keys = ["spiral_params{}.hdf5".format(args.paramset), "three_points_params{}.hdf5".format(args.paramset)]
+    train_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=train_transform, squeeze=True, keys=training_keys)
     train_loader = DataLoader(train_fkset, batch_size=args.batch_size, collate_fn=torch.stack, shuffle=True, drop_last=True, num_workers=args.n_workers, pin_memory=True)
     
     # val_dataloader
     val_transform = t.Compose([torch.as_tensor, Normalise()])
-    val_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=val_transform, squeeze=True, keys=["heartbeat_params3.hdf5"])
+    val_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=val_transform, squeeze=True, keys=["heartbeat_params{}.hdf5".format(args.paramset)])
     val_loader = DataLoader(val_fkset, batch_size=args.batch_size, collate_fn=torch.stack, drop_last=True, num_workers=args.n_workers, pin_memory=True)
 
     # begin training
