@@ -15,7 +15,7 @@ from utils import Downsample, Normalise, Rotate, Flip, Noise
 import random
 import math
 from functools import partial
-from pytorch_lightning.callbacks import LearningRateLogger
+from pytorch_lightning.callbacks import LearningRateLogger, ModelCheckpoint
 from pytorch_lightning.callbacks.base import Callback
 
 
@@ -38,6 +38,8 @@ class IncreaseFramsesOut(Callback):
             trainer.train_dataloader.dataset.frames_out += 1
             trainer.val_dataloaders[0].dataset.frames_out += 1
             print("Epoch\t{}: increasing number of output frames at {}".format(trainer.current_epoch, trainer.model.frames_out))
+        else:
+            print("Epoch\t{}: keeping the same number of output frames at {}".format(trainer.current_epoch, trainer.model.frames_out))
         return
 
     
@@ -399,6 +401,7 @@ if __name__ == "__main__":
                                          log_gpu_memory="all" if args.profile else None,
                                          train_percent_check=0.01 if args.profile else 1.0,
                                          val_percent_check=0.1 if args.profile else 1.0,
+                                         checkpoint_callback=ModelCheckpoint(save_last=True, save_top_k=2),
                                          callbacks=[LearningRateLogger(), IncreaseFramsesOut(trigger_at=1.6e-3 if not args.profile else 10.)])
     
     trainer.fit(model, train_dataloader=train_loader, val_dataloaders=val_loader)
