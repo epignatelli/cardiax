@@ -347,6 +347,8 @@ if __name__ == "__main__":
     parser.add_argument('--distributed_backend', type=str, default=None)    
     parser.add_argument('--row_log_interval', type=int, default=10)
     parser.add_argument('--resume_from_checkpoint', type=str, default=None)
+    parser.add_argument('--logdir', type=str, default="resnet")
+    
     
     args = parser.parse_args()
     utils.DEBUG = DEBUG = args.debug  # hacky, TODO(epignatelli)
@@ -389,7 +391,7 @@ if __name__ == "__main__":
     # begin training
     trainer = Trainer.from_argparse_args(parser,
                                          fast_dev_run=args.debug,
-                                         default_root_dir="lightning_logs/resnet",
+                                         default_root_dir=args.logdir,
                                          profiler=args.profile,
                                          log_gpu_memory="all" if args.profile else None,
                                          train_percent_check=0.1 if args.profile else 1.0,
