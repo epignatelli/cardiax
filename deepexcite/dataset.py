@@ -123,3 +123,4 @@ class Simulation():
             active &= ((stimulus["start"] - t + 1) % stimulus["period"]) < stimulus["duration"]
             stimulated = torch.where(stimulus["field"] * (active) > 0, stimulus["field"], stimulated)
         return stimulated
+    
