@@ -78,11 +78,7 @@ class Simulation():
         self.states = None
         
         # private:
-        self._length = None
         self._is_open = False
-        
-        # init:
-        self._set_length()
         return
     
     def __getitem__(self, idx):
@@ -103,12 +99,7 @@ class Simulation():
         return states
     
     def __len__(self):
-        return self._length
-    
-    def _set_length(self):
-        with h5py.File(self.filename, "r") as f:
-            self._length = len(f["states_256"]) - (self.frames_in + self.frames_out) * self.step  
-        return
+        return 2000 - (self.frames_in + self.frames_out) * self.step 
     
     def open(self):
         file = h5py.File(self.filename, "r") 
