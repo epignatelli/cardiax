@@ -389,7 +389,7 @@ if __name__ == "__main__":
                                          default_root_dir="lightning_logs/resnet",
                                          profiler=args.profile,
                                          log_gpu_memory="all" if args.profile else None,
-                                         train_percent_check=0.1 if args.profile else 1.0,
+                                         train_percent_check=0.01 if args.profile else 1.0,
                                          val_percent_check=0.1 if args.profile else 1.0,
                                          checkpoint_callback=ModelCheckpoint(save_last=True, save_top_k=2),
                                          callbacks=[LearningRateLogger(), IncreaseFramsesOut(trigger_at=1.6e-3 if not args.profile else 10.)])
