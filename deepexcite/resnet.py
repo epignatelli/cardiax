@@ -31,15 +31,15 @@ class IncreaseFramsesOut(Callback):
             print("WARNING: IncreaseFramesOut callback failed. Cannot retrieve metric {}".format(self.monitor))
             return
         if loss <= self.trigger_at:
-            if trainer.model.frames_out >= self.max_value:
-                print("Epoch\t{}: hit max number of output frames {}".format(trainer.current_epoch, trainer.model.frames_out))
+            if pl_module.frames_out >= self.max_value:
+                print("Epoch\t{}: hit max number of output frames {}".format(trainer.current_epoch, pl_module.frames_out))
                 return
-            trainer.model.frames_out += 1
+            pl_module.frames_out += 1
             trainer.train_dataloader.dataset.frames_out += 1
             trainer.val_dataloaders[0].dataset.frames_out += 1
-            print("Epoch\t{}: increasing number of output frames at {}".format(trainer.current_epoch, trainer.model.frames_out))
+            print("Epoch\t{}: increasing number of output frames at {}".format(trainer.current_epoch, pl_module.frames_out))
         else:
-            print("Epoch\t{}: keeping the same number of output frames at {}".format(trainer.current_epoch, trainer.model.frames_out))
+            print("Epoch\t{}: keeping the same number of output frames at {}".format(trainer.current_epoch, pl_module.frames_out))
         return
 
     
@@ -119,12 +119,15 @@ class ResNet(LightningModule):
         self.residual_step  = residual_step
         self.activation = activation
         self.frames_in = frames_in
-        self.frames_out = frames_out
         self.step = step
         self.loss_weights = loss_weights
         self.attention = attention
         self.lr = lr
         self.profile = profile
+        
+        # frames_out is called on a callback
+        # self.register_buffer makes it available indistributed training
+        self.register_buffer("frames_out", torch.tensor(frames_out))
         
         # private:
         self._val_steps_done = 0
@@ -301,7 +304,7 @@ class ResNet(LightningModule):
         self.logger.experiment.add_image("val_v/truth", mg(y[i, :, 1].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("val_u/pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("val_u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
-        return
+        return outputs
 
     def on_epoch_end(self):
         # log model weights
@@ -357,7 +360,7 @@ if __name__ == "__main__":
     parser.add_argument('--resume_from_checkpoint', type=str, default=None)
     
     args = parser.parse_args()
-    utils.DEBUG = DEBUG = args.debug
+    utils.DEBUG = DEBUG = args.debug  # hacky, TODO(epignatelli)
     
     # define loss weights
     loss_weights = {
@@ -399,7 +402,7 @@ if __name__ == "__main__":
                                          default_root_dir="lightning_logs/resnet",
                                          profiler=args.profile,
                                          log_gpu_memory="all" if args.profile else None,
-                                         train_percent_check=0.01 if args.profile else 1.0,
+                                         train_percent_check=0.1 if args.profile else 1.0,
                                          val_percent_check=0.1 if args.profile else 1.0,
                                          checkpoint_callback=ModelCheckpoint(save_last=True, save_top_k=2),
                                          callbacks=[LearningRateLogger(), IncreaseFramsesOut(trigger_at=1.6e-3 if not args.profile else 10.)])
