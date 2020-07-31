@@ -22,3 +22,8 @@
 	- The model fit reeeeaally well on the training set.
 	- There must be a bug because the validation dataset is stuck at predicting only one frame.
 
+- resnet/version_5
+	- Training with 3 frames as input to test the idea that 2 frames can only predict velocity whilst 3 frames can predict acceleration as well.
+	  The idea is that the higher the number of input frames, the higher the order of variabile able to be predicted
+	- Training goes well, does not overfit, also learns better long term dependencies.
+	  Proper test for acceleration still to be designed.
