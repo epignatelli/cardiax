@@ -31,15 +31,15 @@ class IncreaseFramsesOut(Callback):
             print("WARNING: IncreaseFramesOut callback failed. Cannot retrieve metric {}".format(self.monitor))
             return
         if loss <= self.trigger_at:
-            if trainer.model.frames_out >= self.max_value:
-                print("Epoch\t{}: hit max number of output frames {}".format(trainer.current_epoch, trainer.model.frames_out))
+            if pl_module.frames_out >= self.max_value:
+                print("Epoch\t{}: hit max number of output frames {}".format(trainer.current_epoch, pl_module.frames_out))
                 return
-            trainer.model.frames_out += 1
+            pl_module.frames_out += 1
             trainer.train_dataloader.dataset.frames_out += 1
             trainer.val_dataloaders[0].dataset.frames_out += 1
-            print("Epoch\t{}: increasing number of output frames at {}".format(trainer.current_epoch, trainer.model.frames_out))
+            print("Epoch\t{}: increasing number of output frames at {}".format(trainer.current_epoch, pl_module.frames_out))
         else:
-            print("Epoch\t{}: keeping the same number of output frames at {}".format(trainer.current_epoch, trainer.model.frames_out))
+            print("Epoch\t{}: keeping the same number of output frames at {}".format(trainer.current_epoch, pl_module.frames_out))
         return
 
     

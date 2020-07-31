@@ -107,7 +107,7 @@ class Simulation():
     
     def _set_length(self):
         with h5py.File(self.filename, "r") as f:
-            self._length = 2000 - (self.frames_in + self.frames_out) * self.step  
+            self._length = len(f["states_256"]) - (self.frames_in + self.frames_out) * self.step  
         return
     
     def open(self):
