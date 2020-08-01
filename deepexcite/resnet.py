@@ -35,9 +35,9 @@ class IncreaseFramsesOut(Callback):
                 print("Epoch\t{}: hit max number of output frames {}".format(trainer.current_epoch + 1, pl_module.frames_out))
                 return
             pl_module.frames_out += 1
-            trainer.train_dataloader.dataset.frames_out = pl_module.frames_out.item()
-            trainer.val_dataloaders[0].dataset.frames_out = pl_module.frames_out.item()
-            assert pl_module.frames_out.item() == trainer.train_dataloader.dataset.frames_out == trainer.val_dataloaders[0].dataset.frames_out
+            trainer.train_dataloader.dataset.frames_out = pl_module.frames_out
+            trainer.val_dataloaders[0].dataset.frames_out = pl_module.frames_out
+            assert pl_module.frames_out == trainer.train_dataloader.dataset.frames_out == trainer.val_dataloaders[0].dataset.frames_out
             print("Epoch\t{}: increasing number of output frames. pl_module: {}, train_loader {}, val_loader {}".format(
                   trainer.current_epoch + 1, pl_module.frames_out, trainer.train_dataloader.dataset.frames_out, trainer.val_dataloaders[0].dataset.frames_out))
         else:
@@ -112,7 +112,23 @@ class ResidualBlock(nn.Module):
     
     
 class ResNet(LightningModule):
-    def __init__(self, n_layers, n_filters, kernel_size, residual_step, activation, frames_in, frames_out, step, loss_weights={}, attention="self", lr=0.001, profile=False):
+    def __init__(self,
+                 n_layers,
+                 n_filters,
+                 kernel_size,
+                 residual_step,
+                 activation,
+                 frames_in,
+                 frames_out,
+                 step,
+                 root,
+                 paramset,
+                 batch_size,
+                 n_workers,
+                 loss_weights={},
+                 attention="self",
+                 lr=0.001,
+                 profile=False):
         super().__init__()
         self.save_hyperparameters()
         
@@ -128,10 +144,15 @@ class ResNet(LightningModule):
         self.attention = attention
         self.lr = lr
         self.profile = profile
+        self.root = root
+        self.paramset = paramset
+        self.batch_size = batch_size
+        self.n_workers = n_workers
         
         # frames_out is called on a callback
         # self.register_buffer makes it available indistributed training
-        self.register_buffer("frames_out", torch.tensor(frames_out))
+#         self.register_buffer("frames_out", torch.tensor(frames_out))
+        self.frames_out = frames_out
         
         # private:
         self._val_steps_done = 0
@@ -200,8 +221,7 @@ class ResNet(LightningModule):
         return
     
     def training_step(self, batch, batch_idx):
-        x = batch[:, :self.frames_in]
-        y = batch[:, -self.frames_out:]
+        x, y = batch.split(self.frames_in, dim=1)
         self.profile_gpu_memory()
         
         output_sequence = torch.empty_like(y, requires_grad=False, device="cpu")
@@ -243,8 +263,7 @@ class ResNet(LightningModule):
 
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
-        x = batch[:, :self.frames_in]
-        y = batch[:, self.frames_in:]
+        x, y = batch.split(self.frames_in, dim=1)
         self.profile_gpu_memory()
         
         output_sequence = torch.empty_like(y, requires_grad=False, device="cpu")
@@ -312,6 +331,19 @@ class ResNet(LightningModule):
         self.logger.experiment.add_image("val_u/pred", mg(y_hat[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         self.logger.experiment.add_image("val_u/truth", mg(y[i, :, 2].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
         return
+    
+    def train_dataloader(self):
+        train_transform = t.Compose([torch.as_tensor, Normalise(), Rotate(), Flip()])
+        training_keys = ["spiral_params{}.hdf5".format(self.paramset), "three_points_params{}.hdf5".format(self.paramset)]
+        train_fkset = FkDataset(self.root, self.frames_in, self.frames_out, self.step, transform=train_transform, squeeze=True, keys=training_keys)
+        train_loader = DataLoader(train_fkset, batch_size=self.batch_size, collate_fn=torch.stack, shuffle=True, drop_last=True, num_workers=self.n_workers, pin_memory=True)
+        return train_loader
+    
+    def val_dataloader(self):
+        val_transform = t.Compose([torch.as_tensor, Normalise()])
+        val_fkset = FkDataset(self.root, self.frames_in, self.frames_out, self.step, transform=val_transform, squeeze=True, keys=["heartbeat_params{}.hdf5".format(self.paramset)])
+        val_loader = DataLoader(val_fkset, batch_size=self.batch_size, collate_fn=torch.stack, drop_last=True, num_workers=self.n_workers, pin_memory=True)        
+        return val_loader
 
     
 if __name__ == "__main__":
@@ -338,8 +370,7 @@ if __name__ == "__main__":
     parser.add_argument('--paramset', type=str, default="3")
     parser.add_argument('--input_size', type=int, default=256)
     parser.add_argument('--batch_size', type=int, default=32)
-    parser.add_argument('--n_workers', type=int, default=3)
-    
+    parser.add_argument('--n_workers', type=int, default=0)
     
     # trainer args
     parser.add_argument('--debug', default=False, action="store_true")
@@ -372,27 +403,20 @@ if __name__ == "__main__":
                    loss_weights=loss_weights,
                    attention=args.attention,
                    lr=args.lr,
-                   profile=args.profile)
+                   profile=args.profile,
+                   root=args.root,
+                   paramset=args.paramset,
+                   batch_size=args.batch_size,
+                   n_workers=args.n_workers)
     
     # print debug info
     log(model)
     log("parameters: {}".format(model.parameters_count()))
 
-    # train_dataloader
-    train_transform = t.Compose([torch.as_tensor, Normalise(), Rotate(), Flip(), Noise(args.frames_in)])
-    training_keys = ["spiral_params{}.hdf5".format(args.paramset), "three_points_params{}.hdf5".format(args.paramset)]
-    train_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=train_transform, squeeze=True, keys=training_keys)
-    train_loader = DataLoader(train_fkset, batch_size=args.batch_size, collate_fn=torch.stack, shuffle=True, drop_last=True, num_workers=args.n_workers, pin_memory=True)
-    
-    # val_dataloader
-    val_transform = t.Compose([torch.as_tensor, Normalise()])
-    val_fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=val_transform, squeeze=True, keys=["heartbeat_params{}.hdf5".format(args.paramset)])
-    val_loader = DataLoader(val_fkset, batch_size=args.batch_size, collate_fn=torch.stack, drop_last=True, num_workers=args.n_workers, pin_memory=True)
-
     # begin training
     trainer = Trainer.from_argparse_args(parser,
                                          fast_dev_run=args.debug,
-                                         default_root_dir=args.logdir,
+                                         default_root_dir="debug" if (args.profile or args.debug) else args.logdir,
                                          profiler=args.profile,
                                          log_gpu_memory="all" if args.profile else None,
                                          train_percent_check=0.1 if args.profile else 1.0,
@@ -400,5 +424,5 @@ if __name__ == "__main__":
                                          checkpoint_callback=ModelCheckpoint(save_last=True, save_top_k=2),
                                          callbacks=[LearningRateLogger(), IncreaseFramsesOut(trigger_at=1.6e-3 if not args.profile else 10.)])
     
-    trainer.fit(model, train_dataloader=train_loader, val_dataloaders=val_loader)
+    trainer.fit(model)
     
