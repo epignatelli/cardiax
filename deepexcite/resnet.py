@@ -349,7 +349,7 @@ if __name__ == "__main__":
     parser.add_argument('--row_log_interval', type=int, default=10)
     parser.add_argument('--resume_from_checkpoint', type=str, default=None)
     parser.add_argument('--logdir', type=str, default="logs/resnet")
-    
+    parser.add_argument('--min_step', type=int, default=None)
     
     args = parser.parse_args()
     utils.DEBUG = DEBUG = args.debug  # hacky, TODO(epignatelli)
