@@ -348,7 +348,7 @@ if __name__ == "__main__":
     parser.add_argument('--distributed_backend', type=str, default=None)    
     parser.add_argument('--row_log_interval', type=int, default=10)
     parser.add_argument('--resume_from_checkpoint', type=str, default=None)
-    parser.add_argument('--logdir', type=str, default="resnet")
+    parser.add_argument('--logdir', type=str, default="logs/resnet")
     
     
     args = parser.parse_args()
