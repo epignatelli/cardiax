@@ -8,7 +8,7 @@ import random
 
 class FkDataset():
     def __init__(self, root, frames_in=5, frames_out=10, step=1,
-                 keys=None, transform=None, squeeze=False):
+                 keys=None, transform=None, squeeze=False, preload=False):
         self.root = root
         self.squeeze = squeeze
 
@@ -16,7 +16,7 @@ class FkDataset():
         if keys is not None:
             filenames = [name for name in filenames 
                  if os.path.basename(name) in keys ]
-        self.datasets = [Simulation(filename, frames_in, frames_out, step, transform, squeeze) for filename in filenames]
+        self.datasets = [Simulation(filename, frames_in, frames_out, step, transform, squeeze, preload) for filename in filenames]
                         
         # private
         self._frames_in = frames_in
@@ -62,12 +62,9 @@ class FkDataset():
         for i in range(len(self.datasets)):
             self.datasets[i].step = value
                 
-    def close(self):
-        for dataset in self.datasets:
-            dataset.states.file.close()
     
 class Simulation():
-    def __init__(self, filename, frames_in=1, frames_out=0, step=1, transform=None, squeeze=True):
+    def __init__(self, filename, frames_in=1, frames_out=0, step=1, transform=None, squeeze=True, preload=False):
         # public:
         self.frames_in = frames_in
         self.frames_out = frames_out
@@ -75,6 +72,7 @@ class Simulation():
         self.squeeze = squeeze
         self.transform = transform
         self.filename = filename
+        self.preload = preload
         self.states = None
         
         # private:
@@ -99,11 +97,13 @@ class Simulation():
         return states
     
     def __len__(self):
-        return 2000 - (self.frames_in + self.frames_out) * self.step 
+        return 2000 - (self.frames_in + 20) * self.step  # hacky, this sucks - TODO(epignatelli)
     
     def open(self):
         file = h5py.File(self.filename, "r") 
         self.states = file["states_256"]
+        if self.preload:
+            self.states = self.states[:]
         self._is_open = True
         return
     
