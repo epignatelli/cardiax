@@ -35,10 +35,11 @@ class IncreaseFramsesOut(Callback):
                 print("Epoch\t{}: hit max number of output frames {}".format(trainer.current_epoch + 1, pl_module.frames_out))
                 return
             pl_module.frames_out += 1
-            trainer.train_dataloader.dataset.frames_out += 1
-            trainer.val_dataloaders[0].dataset.frames_out += 1
+            trainer.train_dataloader.dataset.frames_out = pl_module.frames_out.item()
+            trainer.val_dataloaders[0].dataset.frames_out = pl_module.frames_out.item()
             assert pl_module.frames_out.item() == trainer.train_dataloader.dataset.frames_out == trainer.val_dataloaders[0].dataset.frames_out
-            print("Epoch\t{}: increasing number of output frames at {}".format(trainer.current_epoch + 1, pl_module.frames_out))
+            print("Epoch\t{}: increasing number of output frames. pl_module: {}, train_loader {}, val_loader {}".format(
+                  trainer.current_epoch + 1, pl_module.frames_out, trainer.train_dataloader.dataset.frames_out, trainer.val_dataloaders[0].dataset.frames_out))
         else:
             print("Epoch\t{}: keeping the same number of output frames at {}".format(trainer.current_epoch + 1, pl_module.frames_out))
         # log event
