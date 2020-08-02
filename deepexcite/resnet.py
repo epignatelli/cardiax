@@ -21,7 +21,7 @@ import torch.distributed as dist
 
 
 class IncreaseFramsesOut(Callback):
-    def __init__(self, monitor="loss", trigger_at=1.6e-3, max_value=20):
+    def __init__(self, monitor="loss", trigger_at=2e-3, max_value=20):
         self.monitor = monitor
         self.trigger_at = trigger_at
         self.max_value = max_value
@@ -36,20 +36,22 @@ class IncreaseFramsesOut(Callback):
         # synch and average if ddp
         dist.all_reduce(loss)
         loss /= abs(dist.get_world_size())
+        print("\nIncreaseFramsesOut callback: loss is {}".format(loss))
         
         if loss <= self.trigger_at:
             if pl_module.frames_out >= self.max_value:
-                print("\nEpoch\t{}: hit max number of output frames {}".format(trainer.current_epoch + 1, pl_module.frames_out))
+                print("\nEpoch\t{} - IncreaseFramsesOut callback: Max number of output frames reached")
                 return
             pl_module.frames_out += 1
             trainer.train_dataloader.dataset.frames_out = pl_module.frames_out
             trainer.val_dataloaders[0].dataset.frames_out = pl_module.frames_out
             assert pl_module.frames_out == trainer.train_dataloader.dataset.frames_out == trainer.val_dataloaders[0].dataset.frames_out
-            print("\nEpoch\t{}: increasing number of output frames. pl_module: {}, train_loader {}, val_loader {}".format(
-                  trainer.current_epoch + 1, pl_module.frames_out, trainer.train_dataloader.dataset.frames_out, trainer.val_dataloaders[0].dataset.frames_out))
+            print("\nEpoch\t{} - IncreaseFramsesOut callback: Increase number of output frames")
         else:
-            print("\nEpoch\t{}: keeping the same number of output frames at {}".format(trainer.current_epoch + 1, pl_module.frames_out))
+            print("\nEpoch\t{} - IncreaseFramsesOut callback: Do not increase the number of output frames")
         
+        print("\nIncreaseFramsesOut callback: model.frames_out: {}; train_loader.frames_out: {}; val_loader.frames_out: {}".format(
+              pl_module.frames_out, trainer.train_dataloader.dataset.frames_out, trainer.val_dataloaders[0].dataset.frames_out)
         # log event
         pl_module.logger.experiment.add_scalar("frames_out", pl_module.frames_out, trainer.current_epoch + 1)
         return
@@ -386,9 +388,9 @@ if __name__ == "__main__":
     parser.add_argument('--distributed_backend', type=str, default=None)    
     parser.add_argument('--row_log_interval', type=int, default=10)
     parser.add_argument('--resume_from_checkpoint', type=str, default=None)
-    parser.add_argument('--logdir', type=str, default="logs/resnet")
+    parser.add_argument('--logdir', type=str, default="logs")
     parser.add_argument('--min_step', type=int, default=None)
-    parser.add_argument('--precision', type=int, default=None)
+    parser.add_argument('--precision', type=int, default=32)
     
     args = parser.parse_args()
     utils.DEBUG = DEBUG = args.debug  # hacky, TODO(epignatelli)
@@ -424,7 +426,7 @@ if __name__ == "__main__":
     # begin training
     trainer = Trainer.from_argparse_args(parser,
                                          fast_dev_run=args.debug,
-                                         default_root_dir="debug" if (args.profile or args.debug) else args.logdir,
+                                         default_root_dir="logs/debug" if (args.profile or args.debug) else args.logdir,
                                          profiler=args.profile,
                                          log_gpu_memory="all" if args.profile else None,
                                          train_percent_check=0.1 if args.profile else 1.0,
