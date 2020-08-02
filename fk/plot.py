@@ -51,8 +51,7 @@ def show(state, **kwargs):
         ax[i].set_xlabel("x [cm]")
         ax[i].yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
         ax[i].set_ylabel("y [cm]")
-    fig.tight_layout()
-    plt.show()
+#     fig.tight_layout()
     return fig, ax
 
 
@@ -137,6 +136,55 @@ def animate(states, times=None, figsize=None, channel=None, vmin=0, vmax=1):
 
     animation = FuncAnimation(fig, update, frames=range(len(states)), init_func=init, blit=True)
     matplotlib.use(backend)
+    return animation
+
+
+def animate_state(states, times=None, figsize=(20, 5), vmin=-85, vmax=15, cmap="magma"):
+    cached_backend = matplotlib.get_backend()
+    matplotlib.use("nbAgg")
+    fig, ax = plt.subplots(1, 3, figsize=figsize)
+    
+    def init():
+        state = states[0]
+        im0 = ax[0].imshow(state[0], vmin=vmin, vmax=vmax, cmap=cmap)
+        plt.colorbar(im0, ax=ax[0])
+        ax[0].set_title("v")
+        # plot w
+        im1 = ax[1].imshow(state[1], vmin=vmin, vmax=vmax, cmap=cmap)
+        plt.colorbar(im1, ax=ax[1])
+        ax[1].set_title("w")
+        # plot u
+        im2 = ax[2].imshow(state[2], vmin=vmin, vmax=vmax, cmap=cmap)
+        plt.colorbar(im2, ax=ax[2])
+        ax[2].set_title("u")
+        fig.title = "Start"
+#         fig.tight_layout()
+        
+        for i in range(3):
+            im = ax[i].imshow(states[0, i].squeeze(), animated=True, cmap=cmap, vmin=vmin, vmax=vmax)
+            ax[i].xaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
+            ax[i].set_xlabel("x [cm]")
+            ax[i].yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
+            ax[i].set_ylabel("y [cm]")
+        return [im0, im1, im2]
+
+    def update(iteration):
+        print("Rendering {}\t".format(iteration + 1), end="\r")
+        state = states[iteration]
+        im = ax[0].imshow(state[0], vmin=vmin, vmax=vmax, cmap=cmap)
+        # plot w
+        im = ax[1].imshow(state[1], vmin=vmin, vmax=vmax, cmap=cmap)
+        # plot u
+        im = ax[2].imshow(state[2], vmin=vmin, vmax=vmax, cmap=cmap)
+        if times is not None:
+            title = times[iteration]
+        else:
+            title = iteration
+        fig.title = "t: %d" % title
+        return ax
+
+    animation = FuncAnimation(fig, update, frames=range(len(states)), init_func=init, blit=True)
+    matplotlib.use(cached_backend)
     return animation
 
 
