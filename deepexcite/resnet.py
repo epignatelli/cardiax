@@ -221,7 +221,7 @@ class ResNet(LightningModule):
         return
     
     def training_step(self, batch, batch_idx):
-        x, y = batch.split(self.frames_in, dim=1)
+        x, y = batch.split((self.frames_in, self.frames_out), dim=1)
         self.profile_gpu_memory()
         
         output_sequence = torch.empty_like(y, requires_grad=False, device="cpu")
@@ -263,7 +263,7 @@ class ResNet(LightningModule):
 
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
-        x, y = batch.split(self.frames_in, dim=1)
+        x, y = batch.split((self.frames_in, self.frames_out), dim=1)
         self.profile_gpu_memory()
         
         output_sequence = torch.empty_like(y, requires_grad=False, device="cpu")
