@@ -51,7 +51,7 @@ class IncreaseFramsesOut(Callback):
             print("\nEpoch\t{} - IncreaseFramsesOut callback: Do not increase the number of output frames")
         
         print("\nIncreaseFramsesOut callback: model.frames_out: {}; train_loader.frames_out: {}; val_loader.frames_out: {}".format(
-              pl_module.frames_out, trainer.train_dataloader.dataset.frames_out, trainer.val_dataloaders[0].dataset.frames_out)
+              pl_module.frames_out, trainer.train_dataloader.dataset.frames_out, trainer.val_dataloaders[0].dataset.frames_out))
         # log event
         pl_module.logger.experiment.add_scalar("frames_out", pl_module.frames_out, trainer.current_epoch + 1)
         return
@@ -328,6 +328,18 @@ class ResNet(LightningModule):
                 self.logger.experiment.add_image("_seft-attention/value-{}".format(i), mg(module.attention.query.weight[0], nrow=self.n_filters, normalize=True), self.current_epoch)
         return
     
+    @torch.no_grad()
+    def infer(self, x):
+        if x.dim() == 4:  # no batch dimension
+            x = x.unsqueeze(0)
+        output_sequence = torch.empty((1, self.frames_out, 3, x.size(-1), x.size(-1)), device=torch.device("cpu"))
+        for i in range(self.frames_out):
+            print("Computing step: {}/{}\t".format(i + 1, self.frames_out), end="\r")
+            y_hat = self(x)
+            output_sequence[:, i] = y_hat.squeeze()
+            x = torch.cat([x[:, -(self.frames_in - 1):], y_hat], dim=1)
+        return output_sequence.squeeze()
+
     def log_images(self, x, y_hat, y, normalise=True, nrow=10):
         i = random.randint(0, y_hat.size(0) - 1)
         self.logger.experiment.add_image("val_w/input", mg(x[i, :, 0].unsqueeze(1), nrow=nrow, normalize=normalise), self.current_epoch)
