@@ -30,7 +30,7 @@ class IncreaseFramsesOut(Callback):
         # get final loss (if ddp, the model we're in)
         loss = trainer.callback_metrics.get(self.monitor)
         if loss is None:
-            print("WARNING: IncreaseFramesOut callback failed. Cannot retrieve metric {}".format(self.monitor))
+            print("\nWARNING: IncreaseFramesOut callback failed. Cannot retrieve metric {}".format(self.monitor))
             return
         
         # synch and average if ddp
@@ -39,16 +39,16 @@ class IncreaseFramsesOut(Callback):
         
         if loss <= self.trigger_at:
             if pl_module.frames_out >= self.max_value:
-                print("Epoch\t{}: hit max number of output frames {}".format(trainer.current_epoch + 1, pl_module.frames_out))
+                print("\nEpoch\t{}: hit max number of output frames {}".format(trainer.current_epoch + 1, pl_module.frames_out))
                 return
             pl_module.frames_out += 1
             trainer.train_dataloader.dataset.frames_out = pl_module.frames_out
             trainer.val_dataloaders[0].dataset.frames_out = pl_module.frames_out
             assert pl_module.frames_out == trainer.train_dataloader.dataset.frames_out == trainer.val_dataloaders[0].dataset.frames_out
-            print("Epoch\t{}: increasing number of output frames. pl_module: {}, train_loader {}, val_loader {}".format(
+            print("\nEpoch\t{}: increasing number of output frames. pl_module: {}, train_loader {}, val_loader {}".format(
                   trainer.current_epoch + 1, pl_module.frames_out, trainer.train_dataloader.dataset.frames_out, trainer.val_dataloaders[0].dataset.frames_out))
         else:
-            print("Epoch\t{}: keeping the same number of output frames at {}".format(trainer.current_epoch + 1, pl_module.frames_out))
+            print("\nEpoch\t{}: keeping the same number of output frames at {}".format(trainer.current_epoch + 1, pl_module.frames_out))
         
         # log event
         pl_module.logger.experiment.add_scalar("frames_out", pl_module.frames_out, trainer.current_epoch + 1)
@@ -274,7 +274,7 @@ class ResNet(LightningModule):
         x, y = batch.split((self.frames_in, self.frames_out), dim=1)
         self.profile_gpu_memory()
         
-        output_sequence = torch.empty_like(y, requires_grad=False, device="cpu")
+        output_sequence = torch.empty_like(y, requires_grad=False)
         loss = {}
         for i in range(self.frames_out):
             # forward pass
@@ -283,7 +283,6 @@ class ResNet(LightningModule):
             
             # calculate loss
             current_loss = self.get_loss(y_hat, y[:, i])
-            y_hat = y_hat.detach()
             total_loss = sum(current_loss.values())
             for k, v in current_loss.items():
                 loss.update({k: (loss.get(k, 0.) + v)})
