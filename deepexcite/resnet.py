@@ -28,7 +28,7 @@ class IncreaseFramsesOut(Callback):
         
     def on_epoch_end(self, trainer, pl_module):
         loss = trainer.callback_metrics.get(self.monitor)
-        loss = dist.all_reduce(val_loss).div_(torch.abs(dist.get_world_size()))
+        loss = dist.all_reduce(loss).div_(torch.abs(dist.get_world_size()))
         if loss is None:
             print("WARNING: IncreaseFramesOut callback failed. Cannot retrieve metric {}".format(self.monitor))
             return
