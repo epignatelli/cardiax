@@ -27,11 +27,16 @@ class IncreaseFramsesOut(Callback):
         self.max_value = max_value
         
     def on_epoch_end(self, trainer, pl_module):
+        # get final loss (if ddp, the model we're in)
         loss = trainer.callback_metrics.get(self.monitor)
-        loss = dist.all_reduce(loss).div_(torch.abs(dist.get_world_size()))
         if loss is None:
             print("WARNING: IncreaseFramesOut callback failed. Cannot retrieve metric {}".format(self.monitor))
             return
+        
+        # synch and average if ddp
+        dist.all_reduce(loss)
+        loss /= abs(dist.get_world_size())
+        
         if loss <= self.trigger_at:
             if pl_module.frames_out >= self.max_value:
                 print("Epoch\t{}: hit max number of output frames {}".format(trainer.current_epoch + 1, pl_module.frames_out))
@@ -44,6 +49,7 @@ class IncreaseFramsesOut(Callback):
                   trainer.current_epoch + 1, pl_module.frames_out, trainer.train_dataloader.dataset.frames_out, trainer.val_dataloaders[0].dataset.frames_out))
         else:
             print("Epoch\t{}: keeping the same number of output frames at {}".format(trainer.current_epoch + 1, pl_module.frames_out))
+        
         # log event
         pl_module.logger.experiment.add_scalar("frames_out", pl_module.frames_out, trainer.current_epoch + 1)
         return
