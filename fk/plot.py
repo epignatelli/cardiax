@@ -56,7 +56,7 @@ def show(state, **kwargs):
     return fig, ax
 
 
-def show_grid(states, times=[], figsize=None, rows=5, font_size=10):
+def show_grid(states, times=[], figsize=None, rows=5, font_size=10, vmin=-85, vmax=15, cmap="magma"):
     cols = math.ceil(len(states) / rows)
     rows = max(2, min(rows, len(states)))
     fig, ax = plt.subplots(cols, rows, figsize=figsize)
@@ -72,7 +72,7 @@ def show_grid(states, times=[], figsize=None, rows=5, font_size=10):
     plt.rc('figure', titlesize=font_size)  # fontsize of the figure title
     
     for idx in range(len(states)):
-        im = ax[idx].imshow(states[idx], cmap="magma", vmin=-85, vmax=15,)
+        im = ax[idx].imshow(states[idx], cmap=cmap, vmin=vmin, vmax=vmax,)
         ax[idx].xaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
         ax[idx].set_xlabel("x [cm]")
         ax[idx].yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
