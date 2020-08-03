@@ -3,7 +3,7 @@ from torch import nn
 import torchvision
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning import Trainer
-from dataset import FkDataset, Simulation
+from dataset import ConcatSequence
 import torchvision.transforms as t
 from torch.utils.data import DataLoader
 from torchvision.utils import make_grid as mg
@@ -138,7 +138,8 @@ class ResNet(LightningModule):
                  loss_weights={},
                  attention="self",
                  lr=0.001,
-                 profile=False):
+                 profile=False,
+                 clean_from_stimuli=False):
         super().__init__()
         self.save_hyperparameters()
         
@@ -158,6 +159,7 @@ class ResNet(LightningModule):
         self.paramset = paramset
         self.batch_size = batch_size
         self.n_workers = n_workers
+        self.clean_from_stimuli = clean_from_stimuli
         
         # frames_out is called on a callback
         # self.register_buffer makes it available indistributed training
@@ -356,13 +358,14 @@ class ResNet(LightningModule):
     def train_dataloader(self):
         train_transform = t.Compose([torch.as_tensor, Normalise(), Rotate(), Flip()])
         training_keys = ["spiral_params{}.hdf5".format(self.paramset), "three_points_params{}.hdf5".format(self.paramset)]
-        train_fkset = FkDataset(self.root, self.frames_in, self.frames_out, self.step, transform=train_transform, squeeze=True, keys=training_keys)
+        train_fkset = ConcatSequence(self.root, self.frames_in, self.frames_out, self.step, transform=train_transform, squeeze=True, keys=training_keys, clean_from_stimuli=self.clean_from_stimuli)
         train_loader = DataLoader(train_fkset, batch_size=self.batch_size, collate_fn=torch.stack, shuffle=True, drop_last=True, num_workers=self.n_workers, pin_memory=True)
         return train_loader
     
     def val_dataloader(self):
         val_transform = t.Compose([torch.as_tensor, Normalise()])
-        val_fkset = FkDataset(self.root, self.frames_in, self.frames_out, self.step, transform=val_transform, squeeze=True, keys=["heartbeat_params{}.hdf5".format(self.paramset)])
+        val_keys = ["heartbeat_params{}.hdf5".format(self.paramset)]
+        val_fkset = ConcatSequence(self.root, self.frames_in, self.frames_out, self.step, transform=val_transform, squeeze=True, keys=val_keys, clean_from_stimuli=self.clean_from_stimuli)
         val_loader = DataLoader(val_fkset, batch_size=self.batch_size, collate_fn=torch.stack, drop_last=True, num_workers=self.n_workers, pin_memory=True)        
         return val_loader
 
@@ -392,6 +395,7 @@ if __name__ == "__main__":
     parser.add_argument('--input_size', type=int, default=256)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--n_workers', type=int, default=0)
+    parser.add_argument('--clean_from_stimuli', default=False, action="store_true")
     
     # trainer args
     parser.add_argument('--debug', default=False, action="store_true")
@@ -429,7 +433,8 @@ if __name__ == "__main__":
                    root=args.root,
                    paramset=args.paramset,
                    batch_size=args.batch_size,
-                   n_workers=args.n_workers)
+                   n_workers=args.n_workers,
+                   clean_from_stimuli=args.clean_from_stimuli)
     
     # print debug info
     log(model)

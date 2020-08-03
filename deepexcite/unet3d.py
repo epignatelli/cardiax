@@ -3,7 +3,7 @@ from torch import nn
 import torchvision
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning import Trainer
-from dataset import FkDataset, Simulation
+from dataset import ConcatSequence, HDF5Sequence
 import torchvision.transforms as t
 from torch.utils.data import DataLoader
 from torchvision.utils import make_grid as mg
@@ -251,8 +251,8 @@ if __name__ == "__main__":
     log(model)
     log("parameters: {}".format(model.parameters_count()))
     
-    fkset = FkDataset(args.root, args.frames_in, args.frames_out, args.step, transform=Normalise(), squeeze=True, keys=["spiral_params3.hdf5", "heartbeat_params3.hdf5", "three_points_params3.hdf5"])
-#     fkset = Simulation(args.filename, args.frames_in, args.frames_out, args.step, transform=Normalise())
+    fkset = ConcatSequence(args.root, args.frames_in, args.frames_out, args.step, transform=Normalise(), squeeze=True, keys=["spiral_params3.hdf5", "heartbeat_params3.hdf5", "three_points_params3.hdf5"])
+#     fkset = HDF5Sequence(args.filename, args.frames_in, args.frames_out, args.step, transform=Normalise())
     loader = DataLoader(fkset, batch_size=args.batch_size, collate_fn=collate, shuffle=True, num_workers=3)
     trainer = Trainer.from_argparse_args(parser, fast_dev_run=args.debug, row_log_interval=args.log_interval, default_root_dir="lightning_logs/unet3d")
     trainer.fit(model, train_dataloader=loader)

@@ -6,22 +6,37 @@ import fk
 import random
 
 
-class FkDataset():
-    def __init__(self, root, frames_in=5, frames_out=10, step=1,
-                 keys=None, transform=None, squeeze=False, preload=False):
+class ConcatSequence():
+    def __init__(self,
+                 root,
+                 frames_in=5,
+                 frames_out=10,
+                 step=1,
+                 keys=None,
+                 transform=None,
+                 squeeze=False,
+                 preload=False,
+                 clean_from_stimuli=False):
+        # public:
         self.root = root
         self.squeeze = squeeze
-
-        filenames = [os.path.join(root, name) for name in sorted(os.listdir(root)) if name.endswith("hdf5")]
-        if keys is not None:
-            filenames = [name for name in filenames 
-                 if os.path.basename(name) in keys ]
-        self.datasets = [Simulation(filename, frames_in, frames_out, step, transform, squeeze, preload) for filename in filenames]
-                        
-        # private
+        
+        # private:
         self._frames_in = frames_in
         self._frames_out = frames_out
         self._step = step
+
+        filenames = [os.path.join(root, name) for name in sorted(os.listdir(root)) if name.endswith("hdf5")]
+        if keys is not None:
+            filenames = [name for name in filenames if os.path.basename(name) in keys ]
+        self.datasets = [HDF5Sequence(filename,
+                                      frames_in,
+                                      frames_out,
+                                      step,
+                                      transform, 
+                                      squeeze,
+                                      preload,
+                                      clean_from_stimuli) for filename in filenames]
         return
 
     def __len__(self):
@@ -63,8 +78,16 @@ class FkDataset():
             self.datasets[i].step = value
                 
     
-class Simulation():
-    def __init__(self, filename, frames_in=1, frames_out=0, step=1, transform=None, squeeze=True, preload=False):
+class HDF5Sequence():
+    def __init__(self,
+                 filename,
+                 frames_in=1,
+                 frames_out=0,
+                 step=1,
+                 transform=None,
+                 squeeze=True,
+                 preload=False,
+                 clean_from_stimuli=False):
         # public:
         self.frames_in = frames_in
         self.frames_out = frames_out
@@ -74,9 +97,11 @@ class Simulation():
         self.filename = filename
         self.preload = preload
         self.states = None
+        self.clean_from_stimuli = clean_from_stimuli
         
         # private:
         self._is_open = False
+        self._tentatives = 0
         return
     
     def __getitem__(self, idx):
@@ -84,9 +109,17 @@ class Simulation():
             self.open()
         if isinstance(idx, slice):
             idx = slice(idx.start, idx.start + (self.frames_in + self.frames_out) * self.step, self.step)
-            states = np.array(self.states[idx])
         else:
-            states = np.array(self.states[idx: idx + (self.frames_in + self.frames_out) * self.step: self.step])
+            idx = slice(idx, idx + (self.frames_in + self.frames_out) * self.step, self.step)
+        
+        if self.clean_from_stimuli and self.is_stimulated_within(idx.start, idx.stop):
+            if self._tentatives < 30:
+                self._tentatives += 1
+                return self[idx.stop]
+            else:
+                print("Spent {} tentatives to acquire data without stimulus, but failed. The sample may contain stimuli.")
+        
+        states = np.array(self.states[idx])
         
         if self.transform is not None:
             states = self.transform(states)
@@ -94,6 +127,7 @@ class Simulation():
         if self.squeeze:
             states = states.squeeze()
         
+        self._tentatives = 0
         return states
     
     def __len__(self):
@@ -102,10 +136,19 @@ class Simulation():
     def open(self):
         file = h5py.File(self.filename, "r") 
         self.states = file["states_256"]
+        self.stimuli = fk.io.load_stimuli(file)
         if self.preload:
             self.states = self.states[:]
         self._is_open = True
         return
+    
+    def is_stimulated_within(seft, start, end):
+        for stimulus in self.stimuli:
+            stim_start = stimulus["start"]
+            stim_end = stim_start + stimulus["duration"]
+            if start <= stim_start <= end or start <= stim_end <= end:
+                return True
+        return False
     
     def stimulus_at_t(self, t):
         stimulated = np.zeros(self.shape)
