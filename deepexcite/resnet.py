@@ -444,7 +444,7 @@ if __name__ == "__main__":
                                          train_percent_check=0.1 if args.profile else 1.0,
                                          val_percent_check=0.1 if args.profile else 1.0,
                                          checkpoint_callback=ModelCheckpoint(save_last=True, save_top_k=2),
-                                         callbacks=[LearningRateLogger(), IncreaseFramsesOut(trigger_at=1.6e-3 if not args.profile else 10.)])
+                                         callbacks=[LearningRateLogger(), IncreaseFramsesOut(trigger_at=2e-3 if not args.profile else 10.)])
     
     trainer.fit(model)
     
