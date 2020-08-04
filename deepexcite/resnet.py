@@ -21,9 +21,10 @@ import torch.distributed as dist
 
 
 class IncreaseFramsesOut(Callback):
-    def __init__(self, monitor="loss", trigger_at=2e-3, max_value=20):
+    def __init__(self, monitor="loss", at_loss=None, every_k_epochs=None, max_value=20):
         self.monitor = monitor
-        self.trigger_at = trigger_at
+        self.at_loss = at_loss
+        self.every_k_epochs = every_k_epochs
         self.max_value = max_value
         
     def on_epoch_end(self, trainer, pl_module):
@@ -38,7 +39,7 @@ class IncreaseFramsesOut(Callback):
         loss /= abs(dist.get_world_size())
         print("\nIncreaseFramsesOut callback: loss is {}".format(loss))
         
-        if loss <= self.trigger_at:
+        if (self.at_loss is not None and loss <= self.at_loss) or (self.every_k_epochs is not None and trainer.current_epoch % self.every_k_epochs):
             if pl_module.frames_out >= self.max_value:
                 print("\nEpoch\t{} - IncreaseFramsesOut callback: Max number of output frames reached")
                 return
@@ -214,7 +215,7 @@ class ResNet(LightningModule):
     def configure_optimizers(self):
         optimisers = [torch.optim.Adam(self.parameters(), lr=self.lr)]
         schedulers = [{
-            'scheduler': torch.optim.lr_scheduler.ReduceLROnPlateau(optimisers[0], verbose=True, min_lr=1e-6),
+            'scheduler': torch.optim.lr_scheduler.ReduceLROnPlateau(optimisers[0], verbose=True, min_lr=1e-4),
             'monitor': 'loss'}]
         return optimisers, schedulers
     
@@ -236,7 +237,7 @@ class ResNet(LightningModule):
         x, y = batch.split((self.frames_in, self.frames_out), dim=1)
         self.profile_gpu_memory()
         
-        output_sequence = torch.empty_like(y, requires_grad=False, device="cpu")
+        output_sequence = torch.empty_like(y, requires_grad=False)
         loss = {}
         for i in range(self.frames_out):
             # forward pass
@@ -449,7 +450,7 @@ if __name__ == "__main__":
                                          train_percent_check=0.1 if args.profile else 1.0,
                                          val_percent_check=0.1 if args.profile else 1.0,
                                          checkpoint_callback=ModelCheckpoint(save_last=True, save_top_k=2),
-                                         callbacks=[LearningRateLogger(), IncreaseFramsesOut(trigger_at=2e-3 if not args.profile else 10.)])
+                                         callbacks=[LearningRateLogger(), IncreaseFramsesOut(every_k_epochs=5 if not args.profile else 10.)])
     
     trainer.fit(model)
     
