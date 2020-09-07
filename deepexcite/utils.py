@@ -12,8 +12,15 @@ def log(*m):
         
 def scream(*m):
     print("AAAAAAAAAAAAAAAAAAAA", *m)
-        
-        
+
+    
+def prod(args):
+    result = 1
+    for arg in args:
+        result = result * arg
+    return result
+
+
 def energy_mse_loss(y_hat, y, reduction="sum"):
     y_hat_energy = y_hat.sum(dim=(-3, -2, -1))
     y_energy = y.sum(dim=(-3, -2, -1))
