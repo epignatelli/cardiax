@@ -14,5 +14,7 @@ class State(NamedTuple):
 
 
 class Stimulus(NamedTuple):
-    t: int
-    field: np.ndarray
+    start: int
+    duration: int
+    period: int
+    value: np.ndarray
