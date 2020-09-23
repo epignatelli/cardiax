@@ -1,4 +1,4 @@
-
+import logging
 import torch
 from torch import nn
 from pytorch_lightning.core.lightning import LightningModule
@@ -7,10 +7,8 @@ from dataset import ConcatSequence
 import torchvision.transforms as t
 from torch.utils.data import DataLoader
 from torchvision.utils import make_grid as mg
-import utils
-from utils import log
-from utils import space_grad_mse_loss, energy_mse_loss
-from utils import Normalise, Rotate, Flip
+from .utils import space_grad_mse_loss, energy_mse_loss
+from .utils import Normalise, Rotate, Flip
 import random
 import math
 from pytorch_lightning.callbacks import LearningRateLogger, ModelCheckpoint
@@ -135,7 +133,7 @@ class ResidualBlock(nn.Module):
             self.attention = SoftAttention3D(out_channels)
 
     def forward(self, x):
-        log("x: ", x.shape)
+        logging.debug("x: {}".format( x.shape))
         dx = self.conv(x)
         dx = self.activation(dx)
         log("conv: ", dx.shape)

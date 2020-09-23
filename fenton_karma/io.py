@@ -86,6 +86,7 @@ def load_params(filepath):
                 params[key] = stored_params[key][...]
     return params, D
     
+
+def imresize(a, size):
+    return torch.nn.functional.interpolate(torch.tensor(a).unsqueeze(0), size=size, mode="bilinear").squeeze().numpy()
     
-def imresize(array, shape):
-    return np.array(Image.fromarray(array).resize(shape))

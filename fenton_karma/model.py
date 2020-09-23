@@ -1,11 +1,16 @@
+from typing import NamedTuple
+import functools
 import jax
 import jax.numpy as np
-import matplotlib.pyplot as plt
-import functools
-import math
-from . import params
-from . import convert
 from . import plot
+
+
+class State(NamedTuple):
+    u: np.ndarray
+    v: np.ndarray
+    w: np.ndarray
+    l: np.ndarray
+    j: np.ndarray
 
 
 def forward(shape,
@@ -32,36 +37,43 @@ def forward(shape,
     state = init(shape)
     states = []
     for i in range(len(checkpoints) - 1):
-        print("Solving at: %dms/%dms\t\t" % (checkpoints[i + 1], checkpoints[-1]), end="\r")
+        print("Solving at: %dms/%dms\t\t with %d passages" % (checkpoints[i + 1] * dt, checkpoints[-1] * dt, checkpoints[i + 1] - checkpoints[i]), end="\r")
         state = _forward(state, checkpoints[i], checkpoints[i + 1], cell_parameters, np.ones(shape) * diffusivity, stimuli, dt, dx)
         plot.show(state)
-        states.append(state[2])
+        states.append(state)
     return states
 
 
-@functools.partial(jax.jit, static_argnums=0)
+# @functools.partial(jax.jit, static_argnums=0)
 def init(shape):
+    u = np.zeros(shape)
     v = np.ones(shape)
     w = np.ones(shape)
-    u = np.zeros(shape)
-    state = (v, w, u)
-    state = np.asarray(state)
+    l = np.zeros(shape)
+    j = np.zeros(shape)
+    return State(u, v, w, l, j)
+
+
+# @jax.jit
+def _forward(state, t, t_end, params, D, stimuli, dt, dx):
+    # iterate
+    state = jax.lax.fori_loop(t, t_end, lambda i, state: step(state, i, params, D, stimuli, dt, dx), init_val=state)
     return state
 
 
-@jax.jit
+# @functools.partial(jax.jit, static_argnums=(1, 2, 3, 4, 5, 6))
 def step(state, t, params, D, stimuli, dt, dx):
-    v, w, u = state
+    v, w, u = state.v, state.w, state.u
 
     # apply stimulus
     u = stimulate(t, u, stimuli)
 
-    # apply boundary conditions
+    # boundary conditions
     v = neumann(v)
     w = neumann(w)
     u = neumann(u)
 
-    # gate variables
+    # reaction term
     p = np.greater_equal(u, params["V_c"])
     q = np.greater_equal(u, params["V_v"])
     tau_v_minus = (1 - q) * params["tau_v1_minus"] + q * params["tau_v2_minus"]
@@ -69,37 +81,31 @@ def step(state, t, params, D, stimuli, dt, dx):
     d_v = ((1 - p) * (1 - v) / tau_v_minus) - ((p * v) / params["tau_v_plus"])
     d_w = ((1 - p) * (1 - w) / params["tau_w_minus"]) - ((p * w) / params["tau_w_plus"])
 
-    # currents
-    J_fi = - v * p * (u - params["V_c"]) * (1 - u) / params["tau_d"]
-    J_so = (u * (1 - p) / params["tau_0"]) + (p / params["tau_r"])
-    J_si = - (w * (1 + np.tanh(params["k"] * (u - params["V_csi"])))) / (2 * params["tau_si"])
+    j_fi = - v * p * (u - params["V_c"]) * (1 - u) / params["tau_d"]
+    j_so = (u * (1 - p) / params["tau_0"]) + (p / params["tau_r"])
+    j_si = - (w * (1 + np.tanh(params["k"] * (u - params["V_csi"])))) / (2 * params["tau_si"])
 
-    I_ion = -(J_fi + J_so + J_si) / params["Cm"]
+    j_ion = -(j_fi + j_so + j_si) / params["Cm"]
 
-    # voltage01
-#     u_x, u_y = np.gradient(u)
-    u_x, u_y = gradient(u, 0), gradient(u, 1)
-    u_x /= dx
-    u_y /= dx
-#     u_xx = np.gradient(u_x, axis=0)
-#     u_yy = np.gradient(u_y, axis=1)
-    u_xx = gradient(u_x, 0)
-    u_yy = gradient(u_y, 1)
-    u_xx /= dx
-    u_yy /= dx
-#     D_x, D_y = np.gradient(D)
-#     D_x /= dx
-#     D_y /= dx
-    d_u = D * (u_xx + u_yy) + I_ion
-    
+    # diffusion term
+    u_x = gradient(u, 0) / dx
+    u_y = gradient(u, 1) / dx
+    u_xx = gradient(u_x, 0) / dx
+    u_yy = gradient(u_y, 1) / dx
+    D_x = gradient(D, 0) / dx
+    D_y = gradient(D, 1) / dx
+    laplacian =  D * (u_xx + u_yy) + (D_x * u_x) + (D_y * u_y)
+
+    d_u = laplacian + j_ion
+
     # euler update
     v += d_v * dt
     w += d_w * dt
     u += d_u * dt
-    return np.asarray((v, w, u))
+    return State(v, w, u, laplacian, j_ion)
 
 
-@functools.partial(jax.jit, static_argnums=1)
+# @functools.partial(jax.jit, static_argnums=1)
 def gradient(a, axis):
     sliced = functools.partial(jax.lax.slice_in_dim, a, axis=axis)
     a_grad = jax.numpy.concatenate((
@@ -112,7 +118,8 @@ def gradient(a, axis):
     ), axis)
     return a_grad
 
-@jax.jit
+
+# @jax.jit
 def neumann(X):
     X = jax.ops.index_update(X, jax.ops.index[0], X[1])
     X = jax.ops.index_update(X, jax.ops.index[-1], X[-2])
@@ -121,7 +128,7 @@ def neumann(X):
     return X
 
 
-@jax.jit
+# @jax.jit
 def stimulate(t, X, stimuli):
     stimulated = np.zeros_like(X)
     for stimulus in stimuli:
@@ -131,14 +138,7 @@ def stimulate(t, X, stimuli):
     return np.where(stimulated != 0, stimulated, X)
 
 
-@jax.jit
-def _forward(state, t, t_end, params, diffusion, stimuli, dt, dx):
-    # iterate
-    state = jax.lax.fori_loop(t, t_end, lambda i, state: step(state, i, params, diffusion, stimuli, dt, dx), state)
-    return state
-
-
-@functools.partial(jax.jit, static_argnums=(1, 2))
+# @functools.partial(jax.jit, static_argnums=(1, 2))
 def _forward_stack(state, t, t_end, params, diffusion, stimuli, dt, dx):
     # iterate
     def _step(state, i):

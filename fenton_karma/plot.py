@@ -31,15 +31,15 @@ def show(state, **kwargs):
     vmax = kwargs.pop("vmax", 1)
     cmap = kwargs.pop("cmap", "RdBu")
     # plot v
-    im = ax[0].imshow(state[0], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
+    im = ax[0].imshow(state.v, vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
     plt.colorbar(im, ax=ax[0])
     ax[0].set_title("v")
     # plot w
-    im = ax[1].imshow(state[1], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
+    im = ax[1].imshow(state.w, vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
     plt.colorbar(im, ax=ax[1])
     ax[1].set_title("w")
     # plot u
-    im = ax[2].imshow(state[2], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
+    im = ax[2].imshow(state.u, vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
     plt.colorbar(im, ax=ax[2])
     ax[2].set_title("u")
     # set colorbar
@@ -61,7 +61,7 @@ def show_grid(states, times=[], figsize=None, rows=5, font_size=10, vmin=-85, vm
     fig, ax = plt.subplots(cols, rows, figsize=figsize)
     ax = ax.flatten()
     idx = 0
-    
+
     plt.rc('font', size=font_size)          # controls default text sizes
     plt.rc('axes', titlesize=font_size)     # fontsize of the axes title
     plt.rc('axes', labelsize=font_size)    # fontsize of the x and y labels
@@ -69,7 +69,7 @@ def show_grid(states, times=[], figsize=None, rows=5, font_size=10, vmin=-85, vm
     plt.rc('ytick', labelsize=font_size)    # fontsize of the tick labels
     plt.rc('legend', fontsize=font_size)    # legend fontsize
     plt.rc('figure', titlesize=font_size)  # fontsize of the figure title
-    
+
     for idx in range(len(states)):
         im = ax[idx].imshow(states[idx], cmap=cmap, vmin=vmin, vmax=vmax,)
         ax[idx].xaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
@@ -77,7 +77,7 @@ def show_grid(states, times=[], figsize=None, rows=5, font_size=10, vmin=-85, vm
         ax[idx].yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
         ax[idx].set_ylabel("y [cm]")
         cbar = fig.colorbar(im, ax=ax[idx])
-        cbar.ax.set_title("mV") 
+        cbar.ax.set_title("mV")
         if idx + 1 < len(times):
             ax[idx].set_title("t: {:d}".format(times[idx]))
     fig.tight_layout()
@@ -115,7 +115,7 @@ def animate(states, times=None, figsize=None, channel=None, vmin=0, vmax=1):
     backend = matplotlib.get_backend()
     matplotlib.use("nbAgg")
     fig, ax = plt.subplots(1, 1, figsize=figsize)
-    
+
     def init():
         im = ax.imshow(states[0, channel].squeeze(), animated=True, cmap="magma", vmin=vmin, vmax=vmax)
         ax.xaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
@@ -143,23 +143,23 @@ def animate_state(states, times=None, figsize=(20, 5), vmin=-85, vmax=15, cmap="
     cached_backend = matplotlib.get_backend()
     matplotlib.use("nbAgg")
     fig, ax = plt.subplots(1, 3, figsize=figsize)
-    
+
     def init():
         state = states[0]
-        im0 = ax[0].imshow(state[0], vmin=vmin, vmax=vmax, cmap=cmap)
+        im0 = ax[0].imshow(state.v, vmin=vmin, vmax=vmax, cmap=cmap)
         plt.colorbar(im0, ax=ax[0])
         ax[0].set_title("v")
         # plot w
-        im1 = ax[1].imshow(state[1], vmin=vmin, vmax=vmax, cmap=cmap)
+        im1 = ax[1].imshow(state.w, vmin=vmin, vmax=vmax, cmap=cmap)
         plt.colorbar(im1, ax=ax[1])
         ax[1].set_title("w")
         # plot u
-        im2 = ax[2].imshow(state[2], vmin=vmin, vmax=vmax, cmap=cmap)
+        im2 = ax[2].imshow(state.u, vmin=vmin, vmax=vmax, cmap=cmap)
         plt.colorbar(im2, ax=ax[2])
         ax[2].set_title("u")
         fig.title = "Start"
 #         fig.tight_layout()
-        
+
         for i in range(3):
             im = ax[i].imshow(states[0, i].squeeze(), animated=True, cmap=cmap, vmin=vmin, vmax=vmax)
             ax[i].xaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
@@ -171,11 +171,11 @@ def animate_state(states, times=None, figsize=(20, 5), vmin=-85, vmax=15, cmap="
     def update(iteration):
         print("Rendering {}\t".format(iteration + 1), end="\r")
         state = states[iteration]
-        im = ax[0].imshow(state[0], vmin=vmin, vmax=vmax, cmap=cmap)
+        im = ax[0].imshow(state.v, vmin=vmin, vmax=vmax, cmap=cmap)
         # plot w
-        im = ax[1].imshow(state[1], vmin=vmin, vmax=vmax, cmap=cmap)
+        im = ax[1].imshow(state.w, vmin=vmin, vmax=vmax, cmap=cmap)
         # plot u
-        im = ax[2].imshow(state[2], vmin=vmin, vmax=vmax, cmap=cmap)
+        im = ax[2].imshow(state.u, vmin=vmin, vmax=vmax, cmap=cmap)
         if times is not None:
             title = times[iteration]
         else:
@@ -192,7 +192,7 @@ def animate3d(states, times=None, figsize=None, channel=2):
     backend = matplotlib.get_backend()
     matplotlib.use("nbAgg")
     fig, ax = plt.subplots(1, 1, figsize=figsize)
-    
+
     def init():
         im = show3d(states[0, channel].squeeze(), animated=True, cmap="magma", vmin=0, vmax=1)
         cbar = fig.colorbar(im)
