@@ -18,7 +18,7 @@ def show_stimuli(*stimuli, **kwargs):
     vmax = kwargs.pop("vmax", 1)
     cmap = kwargs.pop("cmap", "RdBu")
     for i, stimulus in enumerate(stimuli):
-        im = ax[i].imshow(stimulus["field"], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
+        im = ax[i].imshow(stimulus.field, vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
         plt.colorbar(im, ax=ax[i])
         ax[i].set_title("Stimulus %d" % i)
     plt.show()

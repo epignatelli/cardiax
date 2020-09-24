@@ -1,5 +1,39 @@
+from typing import NamedTuple
+
+
 _maxfloat = 1e6
 
+class Params(NamedTuple):
+    tau_v_plus: float
+    tau_v1_minus: float
+    tau_v2_minus: int
+    tau_w_plus: int
+    tau_w_minus: int
+    tau_d: float
+    tau_0: float
+    tau_r: int
+    tau_si: int
+    k: int
+    V_csi: float
+    V_c: float
+    V_v: float
+    Cm: float
+
+
+paramset_3 = Params(3.33,
+                    19.6,
+                    1250,
+                    870,
+                    41,
+                    0.25,
+                    12.5,
+                    33.33,
+                    29,
+                    10,
+                    0.85,
+                    0.13,
+                    0.04,
+                    1)
 
 def _params1():
     params = {

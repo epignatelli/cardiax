@@ -1,24 +1,20 @@
+from typing import NamedTuple
 import jax
 import jax.numpy as np
 from scipy.ndimage.interpolation import rotate
 import random
 from . import convert
 
-def protocol(start, duration, period=None):
-    """
-    Generates a time protocol to manage the simulus by start time, duration and eventual period.
-    Args:
-        start (int):
-        duration (int):
-        period (int): 
-    """
-    if period is None or period == 0:
-        period = 1e9
-    return {
-        "start": int(start),
-        "duration": int(duration),
-        "period": int(period)
-    }
+
+class Protocol(NamedTuple):
+    start: int
+    duration: int
+    period: int
+
+
+class Stimulus(NamedTuple):
+    protocol: Protocol
+    field: np.ndarray
 
 
 def rectangular(shape, centre, size, modulus, protocol):
@@ -44,8 +40,7 @@ def rectangular(shape, centre, size, modulus, protocol):
     y1 = (int(centre[1] - size[1] / 2))
     y2 = (int(centre[1] + size[1] / 2))
     mask = jax.ops.index_update(mask, jax.ops.index[x1:x2, y1:y2], modulus)
-    stimulus = {"field": mask}
-    return {**stimulus, **protocol}
+    return Stimulus(protocol, mask)
 
 
 def linear(shape, direction, coverage, modulus, protocol):
@@ -80,11 +75,10 @@ def linear(shape, direction, coverage, modulus, protocol):
         stripe = jax.ops.index[-stripe_size:, :]
     else:
         raise ValueError("direction mus be either 'left', 'right', 'up', or 'down' not %s" % direction)
-        
-    mask = np.zeros(shape, dtype="float32")
-    mask = jax.ops.index_update(mask, stripe, modulus)
-    stimulus = {"field": mask}
-    return {**stimulus, **protocol}
+
+    field = np.zeros(shape, dtype="float32")
+    field = jax.ops.index_update(field, stripe, modulus)
+    return Stimulus(protocol, field)
 
 
 def triangular(shape, direction, angle, coverage, modulus, protocol):
@@ -93,7 +87,7 @@ def triangular(shape, direction, angle, coverage, modulus, protocol):
     Args:
         shape (Tuple[int, int]): the shape of the stimulus array in simulation units (not cm)
         direction (str): Direction of the wave as a string. Can be either:
-                         'left', 'right', 'up', or 'down'        
+                         'left', 'right', 'up', or 'down'
         angle (str): Incidence angle of the wave in degrees.
         coverage (float): percentage of the field that the wave will cover.
                         It must be between 0 and 1
@@ -108,30 +102,5 @@ def triangular(shape, direction, angle, coverage, modulus, protocol):
                              "period": (int)
     """
     stim = linear(shape, direction, coverage, modulus, protocol)
-    stim["field"] = rotate(stim["field"], angle=angle, mode="nearest", prefilter=False, reshape=False)
-    return stim
-    
-
-def random_triangular(shape, modulus, protocol):
-    @property
-    def rand(a=None):
-        angle = random.random() * 360
-        stim = triangular(shape, "up", angle, 0.2, modulus, protocol)
-        return stim
-    return rand.fget()
-
-
-def random_rectangular(shape, dx, modulus, protocol):
-    @property
-    def rand(key):
-        x1 = random.random() * (shape[0] - 1)
-        x2 = random.random() * (shape[1] - 1)
-        centre = (x1, x2)
-        size = convert.realsize_to_shape((1, 1), dx)
-        stim = rectangular(shape, centre, size, modulus, protocol)
-        return stim
-    return rand.fget()
-
-
-def circular(shape, centre, radius, protocol):
-    raise NotImplementedError
+    field = rotate(stim.field, angle=angle, mode="nearest", prefilter=False, reshape=False)
+    return Stimulus(protocol, field)
