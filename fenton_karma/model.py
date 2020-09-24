@@ -40,7 +40,7 @@ def forward(shape,
     for i in range(len(checkpoints) - 1):
         print("Solving at: %dms/%dms\t\t with %d passages" % (checkpoints[i + 1] * dt, checkpoints[-1] * dt, checkpoints[i + 1] - checkpoints[i]), end="\r")
         state = _forward(state, checkpoints[i], checkpoints[i + 1], cell_parameters, np.ones(shape) * diffusivity, stimuli, dt, dx)
-        plot.show(state)
+        plot.plot_state(state)
         plt.show()
         states.append(state)
     return states
@@ -56,14 +56,16 @@ def init(shape):
     return State(v, w, u, l, j)
 
 
-@functools.partial(jax.jit, static_argnums=(1, 2, 3, 4, 5, 6, 7))
+# @functools.partial(jax.jit, static_argnums=(1, 2, 3, 4, 5, 6, 7))
+@jax.jit
 def _forward(state, t, t_end, params, D, stimuli, dt, dx):
     # iterate
     state = jax.lax.fori_loop(t, t_end, lambda i, state: step(state, i, params, D, stimuli, dt, dx), init_val=state)
     return state
 
 
-@functools.partial(jax.jit, static_argnums=(1, 2, 3, 4, 5, 6))
+# @functools.partial(jax.jit, static_argnums=(1, 2, 3, 4, 5, 6))
+@jax.jit
 def step(state, t, params, D, stimuli, dt, dx):
     # apply stimulus
     u_stimulated = stimulate(t, state.u, stimuli)

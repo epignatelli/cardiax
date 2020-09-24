@@ -2,7 +2,7 @@ import os
 import numpy as np
 import h5py
 import torch
-import fk
+import fenton_karma as fk
 import random
 
 
@@ -142,7 +142,7 @@ class HDF5Sequence():
         self._is_open = True
         return
 
-    def is_stimulated_within(seft, start, end):
+    def is_stimulated_within(self, start, end):
         for stimulus in self.stimuli:
             stim_start = stimulus["start"]
             stim_end = stim_start + stimulus["duration"]

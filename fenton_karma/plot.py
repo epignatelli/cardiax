@@ -12,46 +12,21 @@ import math
 from . import convert
 
 
-def show_stimuli(*stimuli, **kwargs):
-    fig, ax = plt.subplots(1, len(stimuli), figsize=(kwargs.pop("figsize", None) or (10, 3)))
+def plot_state(state, **kwargs):
+    array = tuple(state)
+    fig, ax = plt.subplots(1, len(array), figsize=(kwargs.pop("figsize", None) or (35, 5)))
     vmin = kwargs.pop("vmin", -1)
     vmax = kwargs.pop("vmax", 1)
     cmap = kwargs.pop("cmap", "RdBu")
-    for i, stimulus in enumerate(stimuli):
-        im = ax[i].imshow(stimulus.field, vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
-        plt.colorbar(im, ax=ax[i])
-        ax[i].set_title("Stimulus %d" % i)
-    plt.show()
-    return
 
-
-def show(state, **kwargs):
-    fig, ax = plt.subplots(1, 3, figsize=(kwargs.pop("figsize", None) or (15, 5)))
-    vmin = kwargs.pop("vmin", -1)
-    vmax = kwargs.pop("vmax", 1)
-    cmap = kwargs.pop("cmap", "RdBu")
-    # plot v
-    im = ax[0].imshow(state.v, vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
-    plt.colorbar(im, ax=ax[0])
-    ax[0].set_title("v")
-    # plot w
-    im = ax[1].imshow(state.w, vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
-    plt.colorbar(im, ax=ax[1])
-    ax[1].set_title("w")
-    # plot u
-    im = ax[2].imshow(state.u, vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
-    plt.colorbar(im, ax=ax[2])
-    ax[2].set_title("u")
-    # set colorbar
-#     cbar = fig.colorbar(im)
-#     cbar.ax.set_title("mV")
-    # format axes
     for i in range(len(ax)):
+        im = ax[i].imshow(array[i], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
+        plt.colorbar(im, ax=ax[i])
+        ax[i].set_title(state._fields[i])
         ax[i].xaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
         ax[i].set_xlabel("x [cm]")
         ax[i].yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
         ax[i].set_ylabel("y [cm]")
-#     fig.tight_layout()
     return fig, ax
 
 
@@ -109,6 +84,19 @@ def show3d(state, rcount=200, ccount=200, zlim=None, figsize=None):
     # crop image
     fig.tight_layout()
     return fig, ax
+
+
+def plot_stimuli(*stimuli, **kwargs):
+    fig, ax = plt.subplots(1, len(stimuli), figsize=(kwargs.pop("figsize", None) or (10, 3)))
+    vmin = kwargs.pop("vmin", -1)
+    vmax = kwargs.pop("vmax", 1)
+    cmap = kwargs.pop("cmap", "RdBu")
+    for i, stimulus in enumerate(stimuli):
+        im = ax[i].imshow(stimulus.field, vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
+        plt.colorbar(im, ax=ax[i])
+        ax[i].set_title("Stimulus %d" % i)
+    plt.show()
+    return
 
 
 def animate(states, times=None, figsize=None, channel=None, vmin=0, vmax=1):

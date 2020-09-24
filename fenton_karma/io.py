@@ -1,14 +1,15 @@
 import h5py
-import os
+import jax
 import jax.numpy as np
-from PIL import Image
+from .params import Params
+from .stimulus import Protocol,Stimulus
 
 
-def init(path, shape, n_iter, n_stimuli):
+def init(path, shape, n_iter, n_stimuli, n_variables=5):
     hdf5 = h5py.File(path, "w")
     if "states" not in hdf5:
-        # shape is (t, 3, w, h), where 3 is the tree fk variable
-        dset_states = hdf5.create_dataset("states", shape=(n_iter, 3, *shape), dtype="float32")
+        # shape is (t, n_variables, w, h)
+        dset_states = hdf5.create_dataset("states", shape=(n_iter, n_variables, *shape), dtype="float32")
     if "stimuli" not in hdf5:
         dset_stim = hdf5.create_dataset("stimuli", shape=(n_stimuli, *shape), dtype="float32")
     return hdf5
@@ -22,28 +23,29 @@ def add_params(hdf5, params, diffusivity, dt, dx, shape=None):
     hdf5.create_dataset("params/D", data=diffusivity)
     hdf5.create_dataset("params/dt", data=dt)
     hdf5.create_dataset("params/dx", data=dx)
-    for key in params:
-        hdf5.create_dataset("params/" + key, data=params[key])
+    for i in range(len(params)):
+        hdf5.create_dataset("params/" + params._fields[i], data=params[i])
     return True
 
 
 def add_stimuli(hdf5, stimuli, shape=None):
     # reshape
     if shape is not None:
-        fields = [imresize(stimuli[i]["field"], shape) for i in range(len(stimuli))]
+        fields = [imresize(stimuli[i].field, shape) for i in range(len(stimuli))]
     else:
-        fields = [stimuli[i]["field"] for i in range(len(stimuli))]
+        fields = [stimuli[i].field for i in range(len(stimuli))]
     hdf5.create_dataset("field", data=fields)
     # store
-    hdf5.create_dataset("start", data=[stimuli[i]["start"] for i in range(len(stimuli))])
-    hdf5.create_dataset("duration", data=[stimuli[i]["duration"] for i in range(len(stimuli))])
-    hdf5.create_dataset("period", data=[stimuli[i]["period"] for i in range(len(stimuli))])
+    hdf5.create_dataset("start", data=[stimuli[i].protocol.start for i in range(len(stimuli))])
+    hdf5.create_dataset("duration", data=[stimuli[i].protocol.duration for i in range(len(stimuli))])
+    hdf5.create_dataset("period", data=[stimuli[i].protocol.period for i in range(len(stimuli))])
     return True
-        
+
 
 def add_state(dset, state, t, shape=None):
     if shape is not None:
-        state = imresize(state, shape)
+        array = np.array(tuple(state))
+        state = imresize(array, shape)
     dset[t] = state
     return True
 
@@ -51,25 +53,22 @@ def append_states(dset, states, start, end):
     # shape is (t, 3, w, h), where 3 is the tree fk variable
     dset[start:end] = states
     return True
-        
-    
+
+
 def load(path, dataset, start, end, step=None):
     with h5py.File(path, "r") as file:
         return [file[dset][start:end:step] for dset in file]
-    
-    
+
+
 def load_state(dset, start, end, step):
     return dset[start:end:step]
-    
-    
+
+
 def load_stimuli(file):
     stimuli = []
     for i in range(len(file["field"])):
-        s = {}
-        s["field"] = file["field"][i]
-        s["start"] = file["start"][i]
-        s["duration"] = file["duration"][i]
-        s["period"] = file["period"][i]
+        protocol = Protocol(file["start"][i], file["duration"][i], file["period"][i])
+        s = Stimulus(protocol, file["field"][i])
         stimuli.append(s)
     return stimuli
 
@@ -84,9 +83,14 @@ def load_params(filepath):
                 D = stored_params[key][...]
             else:
                 params[key] = stored_params[key][...]
+    params = Params(*list(params.values()))
     return params, D
-    
+
 
 def imresize(a, size):
-    return torch.nn.functional.interpolate(torch.tensor(a).unsqueeze(0), size=size, mode="bilinear").squeeze().numpy()
-    
+    """
+    Args:
+        a (np.ndarray): 2D or 3D array
+    """
+    assert len(size) == len(a.shape), "The length of the target size must match the number of dimensions in a, got {} and {}".format(a.shape, size)
+    return jax.image.resize(a, size, "bilinear")
