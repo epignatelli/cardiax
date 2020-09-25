@@ -56,7 +56,6 @@ def init(shape):
     return State(v, w, u, l, j)
 
 
-# @functools.partial(jax.jit, static_argnums=(1, 2, 3, 4, 5, 6, 7))
 @jax.jit
 def _forward(state, t, t_end, params, D, stimuli, dt, dx):
     # iterate
@@ -64,7 +63,6 @@ def _forward(state, t, t_end, params, D, stimuli, dt, dx):
     return state
 
 
-# @functools.partial(jax.jit, static_argnums=(1, 2, 3, 4, 5, 6))
 @jax.jit
 def step(state, t, params, D, stimuli, dt, dx):
     # apply stimulus
@@ -99,7 +97,7 @@ def step(state, t, params, D, stimuli, dt, dx):
     d_w = ((1 - p) * (1 - w) / params.tau_w_minus) - ((p * w) / params.tau_w_plus)
     d_u = del_u + j_ion
 
-    # euler update
+    # euler update and unpadding
     v = state.v + d_v[1:-1, 1:-1] * dt
     w = state.w + d_w[1:-1, 1:-1] * dt
     u = u_stimulated + d_u[1:-1, 1:-1] * dt

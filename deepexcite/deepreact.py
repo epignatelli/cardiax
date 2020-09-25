@@ -62,8 +62,8 @@ class ResidualBlock(nn.Module):
 
     def forward(self, x):
         logging.debug("x: {}".format(x.shape))
-        dx = torch.nn.functoin.aself.conv(x)
-        dx = torch.nn.functoinal.elu(dx)
+        dx = self.conv(x)
+        dx = torch.nn.functional.elu(dx)
         logging.debug("conv: {}".format(dx.shape))
         return dx + x
 
@@ -112,7 +112,6 @@ class DeepReact(LightningModule):
         self.frames_out = frames_out
 
         # private:
-        self._val_steps_done = 0
         self._log_gpu_mem_step = 0
 
         # diffusion net
@@ -341,10 +340,8 @@ if __name__ == "__main__":
     # loader args
     parser.add_argument('--root', type=str, default="/media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/")
     parser.add_argument('--paramset', type=str, default="3")
-    parser.add_argument('--input_size', type=int, default=256)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--n_workers', type=int, default=0)
-    parser.add_argument('--clean_from_stimuli', default=False, action="store_true")
 
     # trainer args
     parser.add_argument('--debug', default=False, action="store_true")
