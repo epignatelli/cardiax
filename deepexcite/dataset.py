@@ -14,12 +14,10 @@ class ConcatSequence():
                  step=1,
                  keys=None,
                  transform=None,
-                 squeeze=False,
                  preload=False,
                  clean_from_stimuli=False):
         # public:
         self.root = root
-        self.squeeze = squeeze
 
         # private:
         self._frames_in = frames_in
@@ -34,7 +32,6 @@ class ConcatSequence():
                                       frames_out,
                                       step,
                                       transform,
-                                      squeeze,
                                       preload,
                                       clean_from_stimuli) for filename in filenames]
         return
@@ -85,14 +82,12 @@ class HDF5Sequence():
                  frames_out=0,
                  step=1,
                  transform=None,
-                 squeeze=True,
                  preload=False,
                  clean_from_stimuli=False):
         # public:
         self.frames_in = frames_in
         self.frames_out = frames_out
         self.step = step
-        self.squeeze = squeeze
         self.transform = transform
         self.filename = filename
         self.preload = preload
@@ -124,9 +119,6 @@ class HDF5Sequence():
         if self.transform is not None:
             states = self.transform(states)
 
-        if self.squeeze:
-            states = states.squeeze()
-
         self._tentatives = 0
         return states
 
@@ -135,7 +127,7 @@ class HDF5Sequence():
 
     def open(self):
         file = h5py.File(self.filename, "r")
-        self.states = file["states_256"]
+        self.states = file["states"]
         self.stimuli = fk.io.load_stimuli(file)
         if self.preload:
             self.states = self.states[:]
@@ -151,7 +143,7 @@ class HDF5Sequence():
         return False
 
     def stimulus_at_t(self, t):
-        stimulated = np.zeros(self.shape)
+        stimulated = np.zeros(self.states.shape)
         for stimulus in self.stimuli:
             active = t >= stimulus["start"]
             active &= ((stimulus["start"] - t + 1) % stimulus["period"]) < stimulus["duration"]
