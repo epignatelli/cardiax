@@ -17,9 +17,10 @@ from torch.utils.data import DataLoader
 from torchvision.utils import make_grid as mg
 import plot
 from dataset import ConcatSequence
-from utils import space_grad_mse_loss, energy_mse_loss
-from utils import Normalise, Rotate, Flip
+from deepexcite.utils import space_grad_mse_loss, energy_mse_loss
+from deepexcite.utils import Normalise, Rotate, Flip
 import matplotlib.pyplot as plt
+
 
 class IncreaseFramsesOut(Callback):
     def __init__(self, monitor="loss", at_loss=None, every_k_epochs=None, max_value=20):
@@ -60,17 +61,6 @@ class IncreaseFramsesOut(Callback):
 
 
 class ResidualBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
-        super().__init__()
-        self.conv = nn.Conv3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
-
-    def forward(self, x):
-        dx = self.conv(x)
-        dx = torch.nn.functional.elu(dx)
-        return dx + x
-
-
-class RecurrentResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
         super().__init__()
         self.conv = nn.Conv3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
@@ -135,7 +125,7 @@ class DeepReact(LightningModule):
             for i in range(n_diffusion_layers)
         ])
         self.diffusion_outlet = nn.Conv3d(n_diffusion_filters, 1, kernel_size=diffusion_kernel_size, stride=1, padding=diffusion_padding)
-        self.diffusion = nn.Sequential(self.diffusion_inlet, self.diffusion_flow, self.diffusion_outlet)
+        # self.diffusion = nn.Sequential(self.diffusion_inlet, self.diffusion_flow, self.diffusion_outlet)
 
         # reaction net
         reaction_padding = tuple([math.floor(x / 2) for x in reaction_kernel_size])
@@ -145,23 +135,40 @@ class DeepReact(LightningModule):
             for i in range(n_reaction_layers)
         ])
         self.reaction_outlet = nn.Conv3d(n_reaction_filters, n_reaction_components, kernel_size=reaction_kernel_size, stride=1, padding=reaction_padding)
-        self.reaction = nn.Sequential(self.reaction_inlet, self.reaction_flow, self.reaction_outlet)
+        # self.reaction = lambda x:  self.reaction_outlet(self.reaction_flow(self.reaction_inlet(x)))
+
+    def reaction(self, x):
+        return self.reaction_outlet(self.reaction_flow(self.reaction_inlet(x)))
+    def diffusion(self, x):
+        return self.diffusion_outlet(self.diffusion_flow(self.diffusion_inlet(x)))
 
     def parameters_count(self):
         return sum(p.numel() for p in self.parameters())
 
-    def forward(self, x):
-        laplacian = self.diffusion(x)
-        reaction = self.reaction(torch.cat([x, laplacian.detach()], dim=1))
-        return x + laplacian + reaction
+    def solve(self, u):
+        # u is (batch_size, 2, 1, 256, 256)
+        laplacian = self.diffusion(u)
+        reaction = self.reaction(torch.cat([u, laplacian.detach()], dim=1))
+        # u[:, -1:] is the value at latest time (present)
+        return u[:, -1:] + laplacian + reaction
+
+    def forward(self, u):
+        # u is (batch_size, frames_out, 1, 256, 256)
+        output_sequence = []
+        for i in range(self.hparams.frames_out):
+            logging.info("Computing step: {}/{}\t".format(i + 1, self.hparams.frames_out), end="\r")
+            u_hat = self.solve(u)  # (batch_size, 1, 1, 256, 256)
+
+            output_sequence.append(u_hat)  # (batch_size, 1, 1, 256, 256) and (batch_size, 1, 1, 256, 256)
+            past = u[:, -(self.hparams.frames_in - 1):]
+            present = u_hat
+            u = torch.cat([past, present], dim=1)
+        return torch.stack(output_sequence, dim=1)
 
     def backward(self, *args):
-        # we're using truncated backprop through time where the inputs depend on new outputs
-        # the backward methods is called inside training_step
-        # we override this to do nothing
         return
 
-    def compute_loss(self, y_hat, y):
+    def loss(self, y_hat, y):
         recon_loss = torch.sqrt(nn.functional.mse_loss(y_hat, y, reduction="mean")) / y_hat.size(0) / y_hat.size(1)
         recon_loss = recon_loss * self.hparams.loss_weights.get("recon_loss", 1.)
         space_grad_loss = torch.sqrt(space_grad_mse_loss(y_hat, y, reduction="mean")) / y_hat.size(0) / y_hat.size(1)
@@ -189,128 +196,73 @@ class DeepReact(LightningModule):
 
     def on_train_start(self):
         # add graph with a randomly-sized input
-        self.logger.experiment.add_graph(self, torch.randn((self.hparams.batch_size, self.hparams.frames_in, 1, 256, 256), device=self.diffusion_inlet.bias.device))
+        self.logger.experiment.add_graph(self, torch.randn((1, self.hparams.frames_in, 1, 256, 256), device=self.diffusion_inlet.bias.device))
         return
 
-    def training_step(self, batch, batch_idx):
+    def learning_step(self, batch, batch_idx, backward=True):
         x, y = batch.split((self.hparams.frames_in, self.hparams.frames_out), dim=1)
         # take only u as input
         u = x[:, :, 2:3]  # (batch_size, frames_in, 1, 256, 256)
+
         # take only diffusion residual as output
         rd = y[:, :, 3:]  # (batch_size, frames_out, 2, 256, 256)
-        r = rd[:, :, 0]  # (batch_size, frames_out, 1, 256, 256)
-        d = rd[:, :, 1]  # (batch_size, frames_out, 1, 256, 256)
-        self.profile_gpu_memory()
+        r = rd[:, :, 0:1]  # (batch_size, frames_out, 1, 256, 256)
+        d = rd[:, :, 1:2]  # (batch_size, frames_out, 1, 256, 256)
 
         output_sequence = torch.empty(self.hparams.batch_size, self.hparams.frames_out, 2, y.size(-1), y.size(-2), requires_grad=False)  # (batch_size, frames_out, 2, 256, 256)
         for i in range(self.hparams.frames_out):
             # forward pass
             d_hat = self.diffusion(u)  # (batch_size, 1, 1, 256, 256)
             r_hat = self.reaction(torch.cat([u, d_hat.detach()], dim=1))  # (batch_size, 1, 1, 256, 256)
-            self.profile_gpu_memory()
 
             # calculate loss
             rd_hat = torch.cat([d_hat, r_hat], dim=-3)  # (batch_size, 1, 2, 256, 256)
-            loss = self.compute_loss(rd_hat, rd[:, i])  # (batch_size)
+            loss = self.loss(rd_hat, rd[:, i:i+1]) # (batch_size, 1, 2, 256, 256), # (batch_size, 1, 2, 256, 256)
             total_loss = loss["total_loss"]  #(batch_size)
-            d_hat = d_hat.detach()  # (batch_size, 1, 1, 256, 256)
-            r_hat = r_hat.detach()  # (batch_size, 1, 1, 256, 256)
-            self.profile_gpu_memory()
 
             # backward pass
-            total_loss.backward()
-            self.profile_gpu_memory()
+            if backward:
+                total_loss.backward()
 
             # update output sequence
             output_sequence[:, i] = rd_hat.squeeze(1)  # (batch_size, 2, 256, 256) and (batch_size, 2, 256, 256)
-            self.profile_gpu_memory()
 
             # update input sequence with predicted frames
             if (self.hparams.frames_out > 1):
-                u_next = u[:, -1] + d_hat + r_hat  # (batch_size, 1, 1, 256, 256)
-                print(u[:, -(self.hparams.frames_in - 1):].shape)
-                print(u_next.unsqueeze(1).shape)
-                u = torch.cat([u[:, -(self.hparams.frames_in - 1):], u_next.unsqueeze(1)], dim=1)  # (batch_size, frames_in - 1, 1, 256, 256) and
+                u_next = u[:, -1:] + d_hat + r_hat  # (batch_size, 1, 1, 256, 256)
+                u = torch.cat([u[:, -(self.hparams.frames_in - 1):], u_next], dim=1)  # (batch_size, frames_in - 1, 1, 256, 256)
+                # detach this damn u, before pytorch builds a pyramid
+                u = u.detach()
+
+                # log memory usage
                 self.profile_gpu_memory()
 
         # logging losses
         if batch_idx == 0:
-            fig, ax = plot.compare(r_hat[0].detach().cpu(), r.detach().cpu())
-            self.logger.experiment.add_figure("train_comparison_r", fig, self.global_step)
+            prefix = ["val", "train"]
+            fig, ax = plot.compare(output_sequence[0, :, 0].detach().cpu(), rd[0, :, 0].detach().cpu())
+            self.logger.experiment.add_figure("{}/comparison_d".format(prefix[backward]), fig, self.global_step)
             plt.close(fig)
-            fig, ax = plot.compare(d_hat[0].detach().cpu(), d.detach().cpu())
-            self.logger.experiment.add_figure("train_comparison_d", fig, self.global_step)
+            fig, ax = plot.compare(output_sequence[0, :, 1].detach().cpu(), rd[0, :, 1].detach().cpu())
+            self.logger.experiment.add_figure("{}/comparison_r".format(prefix[backward]), fig, self.global_step)
             plt.close(fig)
 
-        logs = {"train_loss/" + k: v for k, v in loss.items()}
-        return {"loss": total_loss, "log": logs}
+        # logs = {"train_loss/" + k: v for k, v in loss.items()}
+        return {"loss": total_loss}
+
+    def training_step(self, batch, batch_idx):
+        return self.learning_step(batch, batch_idx)
 
     def training_epoch_end(self, outputs):
         return {"loss": torch.stack([x["loss"] for x in outputs]).mean()}
 
-    @torch.no_grad()
     def validation_step(self, batch, batch_idx):
-        x, y = batch.split((self.hparams.frames_in, self.hparams.frames_out), dim=1)
-        # take only u as input
-        u = x[:, :, 2:3]
-        # take only diffusion residual as output
-        rd = y[:, :, 3:]
-        r, d = rd[:, :, 0], rd[:, :, 1]
-        self.profile_gpu_memory()
-
-        output_sequence = torch.empty(self.hparams.batch_size, y.size(-4), 2, y.size(-1), y.size(-2), requires_grad=False)
-        for i in range(self.hparams.frames_out):
-            # forward pass
-            d_hat = self.diffusion(u)
-            r_hat = self.reaction(torch.cat([u, d_hat.detach()], dim=1))
-            self.profile_gpu_memory()
-
-            # calculate loss
-            rd_hat = torch.cat([d_hat, r_hat], dim=-3)
-            loss = self.compute_loss(rd_hat, rd)
-            total_loss = loss["total_loss"]
-            d_hat = d_hat.detach()
-            r_hat = r_hat.detach()
-            self.profile_gpu_memory()
-
-            # update output sequence
-            output_sequence[:, i] = rd_hat.squeeze(1)
-            self.profile_gpu_memory()
-
-            # update input sequence with predicted frames
-            if (self.hparams.frames_out > 1):
-                u_new = u + d_hat + r_hat
-                u = torch.cat([u[:, -(self.hparams.frames_in - 1):], u_new.unsqueeze(1)], dim=1)
-                self.profile_gpu_memory()
-
-        # logging losses
-        if batch_idx == 0:
-            fig, ax = plot.compare(r_hat[0].detach().cpu(), r.detach().cpu())
-            self.logger.experiment.add_figure("val_comparison_r", fig, self.global_step)
-            plt.close(fig)
-            fig, ax = plot.compare(d_hat[0].detach().cpu(), d.detach().cpu())
-            self.logger.experiment.add_figure("val_comparison_d", fig, self.global_step)
-            plt.close(fig)
-        logs = {"val_loss/" + k: v for k, v in loss.items()}
-        return {"loss": total_loss, "log": logs}
+        return self.learning_step(batch, batch_idx, backward=False)
 
     def validation_epoch_end(self, outputs):
         loss = torch.stack([x["loss"] for x in outputs]).mean()
         logs = {"val_loss/total_loss": loss}
         return {"val_loss": loss, "log": logs}
-
-    @torch.no_grad()
-    def infer(self, x):
-        if x.dim() == 4:  # no batch dimension
-            x = x.unsqueeze(0)
-        output_sequence = torch.empty((1, self.hparams.frames_out, 3, x.size(-1), x.size(-1)), device=torch.device("cpu"))
-        for i in range(self.hparams.frames_out):
-            print("Computing step: {}/{}\t".format(i + 1, self.hparams.frames_out), end="\r")
-            y_hat = self(x)
-            output_sequence[:, i] = y_hat.squeeze()
-            x = torch.cat([x[:, -(self.hparams.frames_in - 1):], y_hat], dim=1)
-        return output_sequence.squeeze()
-
 
     def train_dataloader(self):
         train_transform = t.Compose([torch.as_tensor, Normalise(), Rotate(), Flip(), partial(torch.nn.functional.pad, pad=(5, 5, 5, 5), mode="constant",  value=0.), torch.squeeze])

@@ -3,7 +3,7 @@ from matplotlib.ticker import FuncFormatter
 
 
 def compare(y_hat, y):
-    fig, ax = plt.subplots(len(y_hat), 2, figsize=(15, 5))
+    fig, ax = plt.subplots(len(y_hat), 2, figsize=(15, 5 * len(y_hat)))
     if y_hat.size(0) == 1:
         ax = [ax]
 
@@ -27,4 +27,5 @@ def compare(y_hat, y):
             ax[i][j].yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
             ax[i][j].set_ylabel("y [cm]")
 
+    fig.tight_layout()
     return fig, ax
