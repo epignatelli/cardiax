@@ -7,6 +7,7 @@ import math
 from functools import partial
 import torch
 from torch import nn
+import pytorch_lightning as pl
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateLogger, ModelCheckpoint
@@ -125,7 +126,7 @@ class DeepReact(LightningModule):
             for i in range(n_diffusion_layers)
         ])
         self.diffusion_outlet = nn.Conv3d(n_diffusion_filters, 1, kernel_size=diffusion_kernel_size, stride=1, padding=diffusion_padding)
-        # self.diffusion = nn.Sequential(self.diffusion_inlet, self.diffusion_flow, self.diffusion_outlet)
+        self.diffusion = nn.Sequential(self.diffusion_inlet, self.diffusion_flow, self.diffusion_outlet)
 
         # reaction net
         reaction_padding = tuple([math.floor(x / 2) for x in reaction_kernel_size])
@@ -135,12 +136,7 @@ class DeepReact(LightningModule):
             for i in range(n_reaction_layers)
         ])
         self.reaction_outlet = nn.Conv3d(n_reaction_filters, n_reaction_components, kernel_size=reaction_kernel_size, stride=1, padding=reaction_padding)
-        # self.reaction = lambda x:  self.reaction_outlet(self.reaction_flow(self.reaction_inlet(x)))
-
-    def reaction(self, x):
-        return self.reaction_outlet(self.reaction_flow(self.reaction_inlet(x)))
-    def diffusion(self, x):
-        return self.diffusion_outlet(self.diffusion_flow(self.diffusion_inlet(x)))
+        self.reaction = nn.Sequential(self.reaction_inlet, self.reaction_flow, self.reaction_outlet)
 
     def parameters_count(self):
         return sum(p.numel() for p in self.parameters())
@@ -182,7 +178,7 @@ class DeepReact(LightningModule):
         optimisers = [torch.optim.Adam(self.parameters(), lr=self.lr)]
         schedulers = [{
             'scheduler': torch.optim.lr_scheduler.ReduceLROnPlateau(optimisers[0], verbose=True, min_lr=1e-4),
-            'monitor': 'loss'}]
+            'monitor': 'checkpoint_on'}]
         return optimisers, schedulers
 
     def profile_gpu_memory(self):
@@ -199,7 +195,7 @@ class DeepReact(LightningModule):
         self.logger.experiment.add_graph(self, torch.randn((1, self.hparams.frames_in, 1, 256, 256), device=self.diffusion_inlet.bias.device))
         return
 
-    def learning_step(self, batch, batch_idx, backward=True):
+    def learning_step(self, batch, batch_idx, backprop=True):
         x, y = batch.split((self.hparams.frames_in, self.hparams.frames_out), dim=1)
         # take only u as input
         u = x[:, :, 2:3]  # (batch_size, frames_in, 1, 256, 256)
@@ -209,6 +205,7 @@ class DeepReact(LightningModule):
         r = rd[:, :, 0:1]  # (batch_size, frames_out, 1, 256, 256)
         d = rd[:, :, 1:2]  # (batch_size, frames_out, 1, 256, 256)
 
+        losses = {}
         output_sequence = torch.empty(self.hparams.batch_size, self.hparams.frames_out, 2, y.size(-1), y.size(-2), requires_grad=False)  # (batch_size, frames_out, 2, 256, 256)
         for i in range(self.hparams.frames_out):
             # forward pass
@@ -217,15 +214,18 @@ class DeepReact(LightningModule):
 
             # calculate loss
             rd_hat = torch.cat([d_hat, r_hat], dim=-3)  # (batch_size, 1, 2, 256, 256)
-            loss = self.loss(rd_hat, rd[:, i:i+1]) # (batch_size, 1, 2, 256, 256), # (batch_size, 1, 2, 256, 256)
-            total_loss = loss["total_loss"]  #(batch_size)
+            current_loss = self.loss(rd_hat, rd[:, i:i + 1]) # (batch_size, 1, 2, 256, 256), # (batch_size, 1, 2, 256, 256)
 
             # backward pass
-            if backward:
-                total_loss.backward()
+            if backprop:
+                current_loss["total_loss"].backward()
+
+            # accumulate losses
+            for k, v in current_loss.items():
+                losses.update({k: (losses.get(k, 0.) + v)})
 
             # update output sequence
-            output_sequence[:, i] = rd_hat.squeeze(1)  # (batch_size, 2, 256, 256) and (batch_size, 2, 256, 256)
+            output_sequence[:, i] = rd_hat.detach().squeeze(1)  # (batch_size, 2, 256, 256) and (batch_size, 2, 256, 256)
 
             # update input sequence with predicted frames
             if (self.hparams.frames_out > 1):
@@ -237,32 +237,29 @@ class DeepReact(LightningModule):
                 # log memory usage
                 self.profile_gpu_memory()
 
-        # logging losses
+
+        # log losses
+        run = ["val", "train"]
+        for k, v in losses.items():
+            self.logger.experiment.add_scalar("{}/".format(run[backprop]) + k, v, self.global_step)
+
+        # logging images
         if batch_idx == 0:
-            prefix = ["val", "train"]
             fig, ax = plot.compare(output_sequence[0, :, 0].detach().cpu(), rd[0, :, 0].detach().cpu())
-            self.logger.experiment.add_figure("{}/comparison_d".format(prefix[backward]), fig, self.global_step)
+            self.logger.experiment.add_figure("{}/comparison_d".format(run[backprop]), fig, self.global_step)
             plt.close(fig)
             fig, ax = plot.compare(output_sequence[0, :, 1].detach().cpu(), rd[0, :, 1].detach().cpu())
-            self.logger.experiment.add_figure("{}/comparison_r".format(prefix[backward]), fig, self.global_step)
+            self.logger.experiment.add_figure("{}/comparison_r".format(run[backprop]), fig, self.global_step)
             plt.close(fig)
 
-        # logs = {"train_loss/" + k: v for k, v in loss.items()}
-        return {"loss": total_loss}
+        result = pl.TrainResult(losses["total_loss"]) if backprop else pl.EvalResult(checkpoint_on=losses["total_loss"])
+        return result
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, batch_idx, *args, **kwargs):
         return self.learning_step(batch, batch_idx)
 
-    def training_epoch_end(self, outputs):
-        return {"loss": torch.stack([x["loss"] for x in outputs]).mean()}
-
-    def validation_step(self, batch, batch_idx):
-        return self.learning_step(batch, batch_idx, backward=False)
-
-    def validation_epoch_end(self, outputs):
-        loss = torch.stack([x["loss"] for x in outputs]).mean()
-        logs = {"val_loss/total_loss": loss}
-        return {"val_loss": loss, "log": logs}
+    def validation_step(self, batch, batch_idx, *args, **kwargs):
+        return self.learning_step(batch, batch_idx, backprop=False)
 
     def train_dataloader(self):
         train_transform = t.Compose([torch.as_tensor, Normalise(), Rotate(), Flip(), partial(torch.nn.functional.pad, pad=(5, 5, 5, 5), mode="constant",  value=0.), torch.squeeze])
@@ -296,13 +293,12 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--recon_loss', type=float, default=1.)
     parser.add_argument('--space_grad_loss', type=float, default=1.)
-    parser.add_argument('--time_grad_loss', type=float, default=1.)
     parser.add_argument('--energy_loss', type=float, default=0.)
 
     # loader args
     parser.add_argument('--root', type=str, default="/media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/")
-    parser.add_argument('--train_search_regex', type=str, default="deepreact_spiral_params3.hdf5")
-    parser.add_argument('--val_search_regex', type=str, default="deepreact_spiral_params3.hdf5")
+    parser.add_argument('--train_search_regex', type=str, default="deepreact_spiral_*.hdf5")
+    parser.add_argument('--val_search_regex', type=str, default="deepreact_heartbeat*.hdf5")
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--auto_batch_size', type=str, default=None)
     parser.add_argument('--n_workers', type=int, default=0)
@@ -324,7 +320,6 @@ if __name__ == "__main__":
         "recon_loss": args.recon_loss,
         "space_grad_loss": args.space_grad_loss,
         "energy_loss": args.energy_loss,
-        "time_grad_loss": args.time_grad_loss
     }
 
     # define model
@@ -360,8 +355,8 @@ if __name__ == "__main__":
                                          profiler=args.profile,
                                          log_gpu_memory="all" if args.profile else None,
                                          auto_scale_batch_size=args.auto_batch_size,
-                                         train_percent_check=0.1 if args.profile else 1.0,
-                                         val_percent_check=0.1 if args.profile else 1.0,
+                                         train_percent_check=0.02 if args.profile else 1.0,
+                                         val_percent_check=0.02 if args.profile else 1.0,
                                          checkpoint_callback=ModelCheckpoint(save_last=True, save_top_k=2),
                                          callbacks=[LearningRateLogger()])#, IncreaseFramsesOut(every_k_epochs=5 if not args.profile else 10.)])
 
