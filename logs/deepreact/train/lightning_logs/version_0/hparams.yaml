@@ -9,7 +9,6 @@ loss_weights:
   energy_loss: 0.0
   recon_loss: 1.0
   space_grad_loss: 1.0
-  time_grad_loss: 1.0
 lr: 0.001
 n_diffusion_filters: 4
 n_diffusion_layers: 10
@@ -21,5 +20,5 @@ profile: false
 reaction_kernel_size: *id001
 root: /media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/
 step: 5
-train_search_regex: deepreact_spiral_params3.hdf5
-val_search_regex: deepreact_spiral_params3.hdf5
+train_search_regex: deepreact_spiral_*.hdf5
+val_search_regex: deepreact_heartbeat*.hdf5

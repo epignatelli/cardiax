@@ -1,0 +1,20 @@
+batch_size: 32
+frames_in: 2
+frames_out: 1
+kernel_size: !!python/tuple
+- 1
+- 7
+- 7
+loss_weights:
+  grad_loss: 1.0
+  recon_loss: 1.0
+lr: 0.001
+n_filters: 4
+n_latent_channels: 4
+n_layers: 10
+n_workers: 0
+profile: false
+root: /media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/
+step: 5
+train_search_regex: ^(spiral|three_points).*_PARAMS5.hdf5
+val_search_regex: ^heartbeat.*_PARAMS5.hdf5

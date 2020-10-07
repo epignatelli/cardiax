@@ -35,6 +35,7 @@ def forward(shape,
     Returns:
         (List[jax.numpy.ndarray]): The list of states at each checkpoint
     """
+
     state = init(shape)
     states = []
     for i in range(len(checkpoints) - 1):
@@ -81,7 +82,7 @@ def step(state, t, params, D, stimuli, dt, dx):
 
     j_fi = - v * p * (u - params.V_c) * (1 - u) / params.tau_d
     j_so = (u * (1 - p) / params.tau_0) + (p / params.tau_r)
-    j_si = - (w * (1 + np.tanh(params.k * (u - params.V_csi)))) / (2 * params.tau_si)
+    j_si = -(w * (1 + np.tanh(params.k * (u - params.V_csi)))) / (2 * params.tau_si)
     j_ion = -(j_fi + j_so + j_si) / params.Cm
 
     # diffusion term
@@ -101,7 +102,9 @@ def step(state, t, params, D, stimuli, dt, dx):
     v = state.v + d_v[1:-1, 1:-1] * dt
     w = state.w + d_w[1:-1, 1:-1] * dt
     u = u_stimulated + d_u[1:-1, 1:-1] * dt
-    return State(v, w, u, del_u[1:-1, 1:-1], j_ion[1:-1, 1:-1])
+    del_u = del_u[1:-1, 1:-1]
+    j_ion = j_ion[1:-1, 1:-1]
+    return State(v, w, u, del_u, j_ion)
 
 
 @functools.partial(jax.jit, static_argnums=1)
