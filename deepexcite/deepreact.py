@@ -2,7 +2,6 @@ import sys
 import os
 import logging
 from glob import glob
-import random
 import math
 from functools import partial
 import torch
@@ -24,7 +23,7 @@ import matplotlib.pyplot as plt
 
 
 class IncreaseFramsesOut(Callback):
-    def __init__(self, monitor="loss", at_loss=None, every_k_epochs=None, max_value=20):
+    def __init__(self, monitor="checkpoint_on", at_loss=None, every_k_epochs=None, max_value=20):
         self.monitor = monitor
         self.at_loss = at_loss
         self.every_k_epochs = every_k_epochs
@@ -43,21 +42,21 @@ class IncreaseFramsesOut(Callback):
         print("\nIncreaseFramsesOut callback: loss is {}".format(loss))
 
         if (self.at_loss is not None and loss <= self.at_loss) or (self.every_k_epochs is not None and trainer.current_epoch % self.every_k_epochs):
-            if pl_module.frames_out >= self.max_value:
+            if pl_module.hparams.frames_out >= self.max_value:
                 print("\nEpoch\t{} - IncreaseFramsesOut callback: Max number of output frames reached")
                 return
-            pl_module.frames_out += 1
-            trainer.train_dataloader.dataset.frames_out = pl_module.frames_out
-            trainer.val_dataloaders[0].dataset.frames_out = pl_module.frames_out
-            assert pl_module.frames_out == trainer.train_dataloader.dataset.frames_out == trainer.val_dataloaders[0].dataset.frames_out
+            pl_module.hparams.frames_out += 1
+            trainer.train_dataloader.dataset.frames_out = pl_module.hparams.frames_out
+            trainer.val_dataloaders[0].dataset.frames_out = pl_module.hparams.frames_out
+            assert pl_module.hparams.frames_out == trainer.train_dataloader.dataset.frames_out == trainer.val_dataloaders[0].dataset.frames_out
             print("\nEpoch\t{} - IncreaseFramsesOut callback: Increase number of output frames")
         else:
             print("\nEpoch\t{} - IncreaseFramsesOut callback: Do not increase the number of output frames")
 
         print("\nIncreaseFramsesOut callback: model.frames_out: {}; train_loader.frames_out: {}; val_loader.frames_out: {}".format(
-              pl_module.frames_out, trainer.train_dataloader.dataset.frames_out, trainer.val_dataloaders[0].dataset.frames_out))
+              pl_module.hparams.frames_out, trainer.train_dataloader.dataset.frames_out, trainer.val_dataloaders[0].dataset.frames_out))
         # log event
-        pl_module.logger.experiment.add_scalar("frames_out", pl_module.frames_out, trainer.current_epoch + 1)
+        pl_module.logger.experiment.add_scalar("frames_out", pl_module.hparams.frames_out, trainer.current_epoch + 1)
         return
 
 
@@ -120,7 +119,7 @@ class DeepReact(LightningModule):
 
         # diffusion net
         diffusion_padding = tuple([math.floor(x / 2) for x in diffusion_kernel_size])
-        self.diffusion_inlet = nn.Conv3d(self.hparams.frames_in, n_diffusion_filters, kernel_size=diffusion_kernel_size, stride=1, padding=diffusion_padding)
+        self.diffusion_inlet = nn.Conv3d(self.hparams.frames_in + 1, n_diffusion_filters, kernel_size=diffusion_kernel_size, stride=1, padding=diffusion_padding)
         self.diffusion_flow = nn.Sequential(*[
             ResidualBlock(n_diffusion_filters, n_diffusion_filters, kernel_size=diffusion_kernel_size, stride=1, padding=diffusion_padding)
             for i in range(n_diffusion_layers)
@@ -130,7 +129,7 @@ class DeepReact(LightningModule):
 
         # reaction net
         reaction_padding = tuple([math.floor(x / 2) for x in reaction_kernel_size])
-        self.reaction_inlet = nn.Conv3d(self.hparams.frames_in + 1, n_reaction_filters, kernel_size=reaction_kernel_size, stride=1, padding=reaction_padding)
+        self.reaction_inlet = nn.Conv3d(self.hparams.frames_in + 2, n_reaction_filters, kernel_size=reaction_kernel_size, stride=1, padding=reaction_padding)
         self.reaction_flow = nn.Sequential(*[
             ResidualBlock(n_reaction_filters, n_reaction_filters, kernel_size=reaction_kernel_size, stride=1, padding=reaction_padding)
             for i in range(n_reaction_layers)
@@ -141,11 +140,11 @@ class DeepReact(LightningModule):
     def parameters_count(self):
         return sum(p.numel() for p in self.parameters())
 
-    def solve(self, u):
-        # u is (batch_size, 2, 1, 256, 256)
-        laplacian = self.diffusion(u)
+    def solve(self, u, D=None):
+        if D is None:
+            D = torch.ones_like(u)
+        laplacian = self.diffusion(torch.cat([D, u], dim=1))
         reaction = self.reaction(torch.cat([u, laplacian.detach()], dim=1))
-        # u[:, -1:] is the value at latest time (present)
         return u[:, -1:] + laplacian + reaction
 
     def forward(self, u):
@@ -167,12 +166,12 @@ class DeepReact(LightningModule):
     def loss(self, y_hat, y):
         recon_loss = torch.sqrt(nn.functional.mse_loss(y_hat, y, reduction="mean")) / y_hat.size(0) / y_hat.size(1)
         recon_loss = recon_loss * self.hparams.loss_weights.get("recon_loss", 1.)
-        space_grad_loss = torch.sqrt(space_grad_mse_loss(y_hat, y, reduction="mean")) / y_hat.size(0) / y_hat.size(1)
-        space_grad_loss = space_grad_loss * self.hparams.loss_weights.get("space_grad_loss", 1.)
+        grad_loss = torch.sqrt(space_grad_mse_loss(y_hat, y, reduction="mean")) / y_hat.size(0) / y_hat.size(1)
+        grad_loss = grad_loss * self.hparams.loss_weights.get("grad_loss", 1.)
         energy_loss = torch.sqrt(energy_mse_loss(y_hat, y, reduction="mean")) / y_hat.size(0) / y_hat.size(1)
         energy_loss = energy_loss * self.hparams.loss_weights.get("energy_loss", 1.)
-        total_loss = recon_loss + space_grad_loss + energy_loss
-        return {"recon_loss": recon_loss, "space_grad_loss": space_grad_loss, "energy_loss": energy_loss, "total_loss": total_loss}
+        total_loss = recon_loss + grad_loss + energy_loss
+        return {"recon_loss": recon_loss, "grad_loss": grad_loss, "energy_loss": energy_loss, "total_loss": total_loss}
 
     def configure_optimizers(self):
         optimisers = [torch.optim.Adam(self.parameters(), lr=self.lr)]
@@ -192,7 +191,7 @@ class DeepReact(LightningModule):
 
     def on_train_start(self):
         # add graph with a randomly-sized input
-        self.logger.experiment.add_graph(self, torch.randn((1, self.hparams.frames_in, 1, 256, 256), device=self.diffusion_inlet.bias.device))
+        self.logger.experiment.add_graph(self, torch.randn((1, self.hparams.frames_in + 1, 1, 256, 256), device=self.diffusion_inlet.bias.device))
         return
 
     def learning_step(self, batch, batch_idx, backprop=True):
@@ -201,42 +200,46 @@ class DeepReact(LightningModule):
         u = x[:, :, 2:3]  # (batch_size, frames_in, 1, 256, 256)
 
         # take only diffusion residual as output
-        rd = y[:, :, 3:]  # (batch_size, frames_out, 2, 256, 256)
-        r = rd[:, :, 0:1]  # (batch_size, frames_out, 1, 256, 256)
-        d = rd[:, :, 1:2]  # (batch_size, frames_out, 1, 256, 256)
+        r = y[:, :, 3:4]  # (batch_size, frames_out, 1, 256, 256)
+        d = y[:, :, 4:5]  # (batch_size, frames_out, 1, 256, 256)
 
         losses = {}
-        output_sequence = torch.empty(self.hparams.batch_size, self.hparams.frames_out, 2, y.size(-1), y.size(-2), requires_grad=False)  # (batch_size, frames_out, 2, 256, 256)
+        u_hat_stacked = torch.empty(self.hparams.batch_size, self.hparams.frames_out, 1, y.size(-1), y.size(-2), requires_grad=False)  # (batch_size, frames_out, 2, 256, 256)
+        d_hat_stacked = torch.empty(self.hparams.batch_size, self.hparams.frames_out, 1, y.size(-1), y.size(-2), requires_grad=False)  # (batch_size, frames_out, 2, 256, 256)
+        r_hat_stacked = torch.empty(self.hparams.batch_size, self.hparams.frames_out, 1, y.size(-1), y.size(-2), requires_grad=False)  # (batch_size, frames_out, 2, 256, 256)
         for i in range(self.hparams.frames_out):
             # forward pass
-            d_hat = self.diffusion(u)  # (batch_size, 1, 1, 256, 256)
-            r_hat = self.reaction(torch.cat([u, d_hat.detach()], dim=1))  # (batch_size, 1, 1, 256, 256)
+            D = torch.ones(self.hparams.batch_size, 1, 1, y.size(-1), y.size(-2)).type_as(u)
+            D[:, :, :, 0:5] = 0.
+            D[:, :, :, -5:] = 0.
+            D[:, :, :, :, 0:5] = 0.
+            D[:, :, :, :, -5:] = 0.
+            u_omega = torch.cat([D, u], dim=1)
+            d_hat = self.diffusion(u_omega)  # (batch_size, 1, 1, 256, 256)
+            r_hat = self.reaction(torch.cat([u_omega, d_hat.detach()], dim=1))  # (batch_size, 1, 1, 256, 256)
+            u_hat = (u[:, -1:] + d_hat + r_hat)  # (batch_size, 1, 1, 256, 256)
 
             # calculate loss
-            rd_hat = torch.cat([d_hat, r_hat], dim=-3)  # (batch_size, 1, 2, 256, 256)
-            current_loss = self.loss(rd_hat, rd[:, i:i + 1]) # (batch_size, 1, 2, 256, 256), # (batch_size, 1, 2, 256, 256)
+            loss = self.loss(torch.cat([u_hat, d_hat, r_hat], dim=-3), y[:, i:i + 1, 2:5])  # (batch_size, 1, 3, 256, 256), # (batch_size, 1, 3, 256, 256)
 
             # backward pass
             if backprop:
-                current_loss["total_loss"].backward()
+                loss["total_loss"].backward()
 
             # accumulate losses
-            for k, v in current_loss.items():
+            for k, v in loss.items():
                 losses.update({k: (losses.get(k, 0.) + v)})
 
             # update output sequence
-            output_sequence[:, i] = rd_hat.detach().squeeze(1)  # (batch_size, 2, 256, 256) and (batch_size, 2, 256, 256)
+            u_hat_stacked[:, i] = u_hat.squeeze(1)
+            d_hat_stacked[:, i] = d_hat.squeeze(1)
+            r_hat_stacked[:, i] = r_hat.squeeze(1)
 
             # update input sequence with predicted frames
             if (self.hparams.frames_out > 1):
-                u_next = u[:, -1:] + d_hat + r_hat  # (batch_size, 1, 1, 256, 256)
-                u = torch.cat([u[:, -(self.hparams.frames_in - 1):], u_next], dim=1)  # (batch_size, frames_in - 1, 1, 256, 256)
                 # detach this damn u, before pytorch builds a pyramid
-                u = u.detach()
-
-                # log memory usage
+                u = (torch.cat([u[:, -(self.hparams.frames_in - 1):], u_hat], dim=1)).detach()  # (batch_size, frames_in - 1, 1, 256, 256)
                 self.profile_gpu_memory()
-
 
         # log losses
         run = ["val", "train"]
@@ -245,10 +248,13 @@ class DeepReact(LightningModule):
 
         # logging images
         if batch_idx == 0:
-            fig, ax = plot.compare(output_sequence[0, :, 0].detach().cpu(), rd[0, :, 0].detach().cpu())
+            fig, ax = plot.compare(u_hat_stacked[0, :].detach().cpu(), y[0, :, 2:3].detach().cpu())
+            self.logger.experiment.add_figure("{}/comparison_u".format(run[backprop]), fig, self.global_step)
+            plt.close(fig)
+            fig, ax = plot.compare(d_hat_stacked[0, :].detach().cpu(), d[0, :].detach().cpu())
             self.logger.experiment.add_figure("{}/comparison_d".format(run[backprop]), fig, self.global_step)
             plt.close(fig)
-            fig, ax = plot.compare(output_sequence[0, :, 1].detach().cpu(), rd[0, :, 1].detach().cpu())
+            fig, ax = plot.compare(r_hat_stacked[0, :].detach().cpu(), r[0, :].detach().cpu())
             self.logger.experiment.add_figure("{}/comparison_r".format(run[backprop]), fig, self.global_step)
             plt.close(fig)
 
@@ -292,7 +298,7 @@ if __name__ == "__main__":
     parser.add_argument('--n_reaction_components', type=int, default=1)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--recon_loss', type=float, default=1.)
-    parser.add_argument('--space_grad_loss', type=float, default=1.)
+    parser.add_argument('--grad_loss', type=float, default=1.)
     parser.add_argument('--energy_loss', type=float, default=0.)
 
     # loader args
@@ -318,7 +324,7 @@ if __name__ == "__main__":
     # define loss weights
     loss_weights = {
         "recon_loss": args.recon_loss,
-        "space_grad_loss": args.space_grad_loss,
+        "grad_loss": args.grad_loss,
         "energy_loss": args.energy_loss,
     }
 
@@ -358,6 +364,6 @@ if __name__ == "__main__":
                                          train_percent_check=0.02 if args.profile else 1.0,
                                          val_percent_check=0.02 if args.profile else 1.0,
                                          checkpoint_callback=ModelCheckpoint(save_last=True, save_top_k=2),
-                                         callbacks=[LearningRateLogger()])#, IncreaseFramsesOut(every_k_epochs=5 if not args.profile else 10.)])
+                                         callbacks=[LearningRateLogger(), IncreaseFramsesOut(at_loss=0.001 if not args.profile else 10.)])
 
     trainer.fit(model)

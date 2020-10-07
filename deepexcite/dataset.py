@@ -1,9 +1,12 @@
+from pytorch_lightning import seed_everything
+seed_everything(2)
 import os
+import random
+import re
 import numpy as np
 import h5py
 import torch
 import fenton_karma as fk
-import random
 
 
 class ConcatSequence():
@@ -24,9 +27,13 @@ class ConcatSequence():
         self._frames_out = frames_out
         self._step = step
 
-        filenames = [os.path.join(root, name) for name in sorted(os.listdir(root)) if name.endswith("hdf5")]
-        if keys is not None:
-            filenames = [name for name in filenames if os.path.basename(name) in keys ]
+        if keys is None:
+            keys = ".*"
+
+        filenames = [os.path.join(root, name) for name in sorted(os.listdir(root)) if re.search(keys, name)]
+        if len(filenames) == 0:
+            raise FileNotFoundError("No datasets found that match regex {} in {}".format(keys, root))
+
         self.datasets = [HDF5Sequence(filename,
                                       frames_in,
                                       frames_out,
@@ -123,7 +130,7 @@ class HDF5Sequence():
         return states
 
     def __len__(self):
-        return 2000 - (self.frames_in + 20) * self.step  # hacky, this sucks - TODO(epignatelli)
+        return 5000 - (self.frames_in + 20) * self.step  # hacky, this sucks - TODO(epignatelli)
 
     def open(self):
         file = h5py.File(self.filename, "r")
