@@ -127,19 +127,13 @@ class ResNet(LightningModule):
         # private:
         self._log_gpu_mem_step = 0
 
-        # pad for same size output
-        padding = tuple([math.floor(x / 2) for x in kernel_size])
-
-        # diffusivity map
-        p = padding[-1]
-        diffusivity = torch.ones(batch_size, frames_in, 1, *size, device=self.device, requires_grad=False)
-        diffusivity = torch.nn.functional.pad(diffusivity, pad=(p, p, p, p), mode="constant", value=0.)
-        self.register_buffer("diffusivity", diffusivity)
-        self.padding = padding
-        self.input_shape = (batch_size, frames_in, 1 + 3 + n_latent_channels, size[0] + 2 * p, size[1] + 2 * p)
+        # input shapes
+        n_channels = 5
+        self.input_shape = (batch_size, frames_in, n_channels + n_latent_channels, *size)
         self.example_input_array = torch.randn(self.input_shape)
 
         # init parameters
+        padding = tuple([math.floor(x / 2) for x in kernel_size])
         self.inlet = nn.Conv3d(frames_in, n_filters, kernel_size=kernel_size, stride=1, padding=padding)
         self.flow = nn.Sequential(*[ResidualBlock(n_filters, n_filters, kernel_size=kernel_size, stride=1, padding=padding) for _ in range(n_layers)])
         self.outlet = nn.Conv3d(n_filters, 1, kernel_size=kernel_size, stride=1, padding=padding)
@@ -150,8 +144,6 @@ class ResNet(LightningModule):
         return h
 
     def forward(self, x):
-        # add static diffusivity field and latent channels to
-        y_hat = torch.cat([self.diffusivity, x], dim=2)
         # add latent channels
         # if h is None:
         #     h = self.init_hidden()
@@ -301,7 +293,7 @@ if __name__ == "__main__":
     parser.add_argument('--n_filters', type=int, default=4)
     parser.add_argument('--n_hidden_filters', type=int, default=None)
     parser.add_argument('--kernel_size', type=int, nargs='+', default=(1, 7, 7))
-    parser.add_argument('--n_latent_channels', type=int, default=4)
+    parser.add_argument('--n_latent_channels', type=int, default=0)
     parser.add_argument('--size', type=int, nargs='+', default=(256, 256))
     parser.add_argument('--frames_in', type=int, default=2)
     parser.add_argument('--frames_out', type=int, default=10)
