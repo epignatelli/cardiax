@@ -7,7 +7,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "internalConsole",
-            "justMyCode": true
+            "justMyCode": false
         }
     ]
 }

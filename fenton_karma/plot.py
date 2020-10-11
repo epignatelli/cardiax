@@ -31,6 +31,26 @@ def plot_state(state, **kwargs):
     return fig, ax
 
 
+def plot_states(states, **kwargs):
+    fig, ax = plt.subplots(len(states), len(states[0]), figsize=(kwargs.pop("figsize", None) or (25, 5 * len(states))))
+    ax = ax if ax.ndim > 1 else ax.reshape(1, -1)
+    vmin = kwargs.pop("vmin", 0)
+    vmax = kwargs.pop("vmax", 1)
+    cmap = kwargs.pop("cmap", "RdBu")
+
+    for t, state in enumerate(states):
+        array = tuple(state)
+        for i in range(len(ax[t])):
+            im = ax[t, i].imshow(array[i], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
+            plt.colorbar(im, ax=ax[t, i])
+            ax[t, i].set_title(state._fields[i])
+            ax[t, i].xaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
+            ax[t, i].set_xlabel("x [cm]")
+            ax[t, i].yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
+            ax[t, i].set_ylabel("y [cm]")
+    return fig, ax
+
+
 def animate_state(states, times=None, **kwargs):
     cached_backend = matplotlib.get_backend()
     matplotlib.use("nbAgg")

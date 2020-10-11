@@ -1,4 +1,5 @@
 import sys
+import os
 from typing import NamedTuple, Callable, Tuple
 from functools import partial
 import math
@@ -9,10 +10,22 @@ import jax
 from jax import random
 from jax.experimental import stax
 from jax.experimental import optimizers
-from jax.experimental.stax import GeneralConv, Identity, FanInSum, FanOut, Elu, Conv
+from jax.experimental.stax import (
+    GeneralConv,
+    Identity,
+    FanInSum,
+    FanOut,
+    Elu,
+    BatchNorm,
+)
 import jax.numpy as jnp
+import torch
+import random
+import numpy as onp
 from torch.utils.data import DataLoader
 from dataset import MnistDataset, ConcatSequence
+from jaxboard import SummaryWriter
+import fenton_karma as fk
 
 
 class Module(NamedTuple):
@@ -20,27 +33,35 @@ class Module(NamedTuple):
     apply: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]
 
 
-def ResidualBlock(out_channels, kernel_size, stride, padding):
+def ResidualBlock(out_channels, kernel_size, stride, padding, input_format):
     double_conv = stax.serial(
-        Conv(out_channels, kernel_size, stride, padding),
+        GeneralConv(input_format, out_channels, kernel_size, stride, padding),
+        # BatchNorm((0,)),
         Elu,
-        Conv(out_channels, kernel_size, stride, padding),
+        GeneralConv(input_format, out_channels, kernel_size, stride, padding),
+        # BatchNorm((0,)),
     )
     return Module(
         *stax.serial(FanOut(2), stax.parallel(double_conv, Identity), FanInSum, Elu)
     )
 
 
-def ResNet(hidden_channels, out_channels, kernel_size, strides, padding, depth):
+def ResNet(
+    hidden_channels, out_channels, kernel_size, strides, padding, depth, input_format
+):
     return Module(
         *(
             stax.serial(
-                Conv(hidden_channels, kernel_size, strides, padding),
+                GeneralConv(
+                    input_format, hidden_channels, kernel_size, strides, padding
+                ),
                 *[
-                    ResidualBlock(hidden_channels, kernel_size, strides, padding)
+                    ResidualBlock(
+                        hidden_channels, kernel_size, strides, padding, input_format
+                    )
                     for _ in range(depth)
                 ],
-                Conv(out_channels, kernel_size, strides, padding)
+                GeneralConv(input_format, out_channels, kernel_size, strides, padding)
             )
         )
     )
@@ -48,27 +69,33 @@ def ResNet(hidden_channels, out_channels, kernel_size, strides, padding, depth):
 
 @jax.jit
 def compute_loss(y_hat, y):
-    return jnp.mean((y_hat - y) ** 2)
+    grad_y_hat_1 = fk.model.gradient(y_hat, -1)
+    grad_y_hat_2 = fk.model.gradient(y_hat, -2)
+    grad_y_1 = fk.model.gradient(y, -1)
+    grad_y_2 = fk.model.gradient(y, -2)
+    grad_loss_1 = jnp.mean((grad_y_hat_1 - grad_y_1) ** 2)  # mse
+    grad_loss_2 = jnp.mean((grad_y_hat_2 - grad_y_2) ** 2)  # mse
+    grad_loss = grad_loss_1 + grad_loss_2
+    recon_loss = jnp.mean((y_hat - y) ** 2)  # mse
+    return grad_loss + recon_loss
 
 
 @partial(jax.jit, static_argnums=0)
-def forward(model, params, batch):
-    x = batch
-    y = jnp.flip(x, axis=-2)
+def forward(model, params, x, y):
     y_hat = model.apply(params, x)
-    return compute_loss(y_hat, y)
+    return (compute_loss(y_hat, y), y_hat)
 
 
 @partial(jax.jit, static_argnums=0)
-def backward(model, params, batch):
-    return jax.value_and_grad(forward, argnums=1)(model, params, batch)
+def backward(model, params, x, y):
+    return jax.value_and_grad(forward, argnums=1, has_aux=True)(model, params, x, y)
 
 
 @partial(jax.jit, static_argnums=(0, 1))
-def update(model, optimiser, iteration, optimiser_state, batch):
+def update(model, optimiser, iteration, optimiser_state, x, y):
     params = optimiser.params_fn(optimiser_state)
-    loss, gradients = backward(model, params, batch)
-    return loss, optimiser.update_fn(iteration, gradients, optimiser_state)
+    (loss, y_hat), gradients = backward(model, params, x, y)
+    return loss, y_hat, optimiser.update_fn(iteration, gradients, optimiser_state)
 
 
 @jax.jit
@@ -76,11 +103,9 @@ def preprocess_batch(batch):
     return batch
 
 
-def log_step(loss, y_hat, y, stage):
-    return
-
-
-def create_dataloader(root, batch_size, frames_in, frames_out, step, shape, search_regex, preload):
+def create_dataloader(
+    root, batch_size, frames_in, frames_out, step, shape, search_regex, preload
+):
     dataset = ConcatSequence(
         root,
         frames_in,
@@ -103,30 +128,58 @@ def create_dataloader(root, batch_size, frames_in, frames_out, step, shape, sear
     return loader
 
 
+def logging_step(logger, loss, x, y_hat, y, step, frequency):
+    if step % frequency:
+        return
+    # log loss
+    logger.scalar("train/loss", loss, step=step)
+    # log input states
+    x_states = [fk.model.State(*s.squeeze()) for s in x[0]]
+    fig, ax = fk.plot.plot_states(x_states, vmin=None, vmax=None, figsize=(15, 5))
+    logger.figure("train/x", fig, step)
+    # log predictions as images
+    y_hat_states = [fk.model.State(*s.squeeze()) for s in y_hat[0]]
+    fig, ax = fk.plot.plot_states(y_hat_states, vmin=None, vmax=None, figsize=(15, 5))
+    logger.figure("train/y_hat", fig, step)
+    # log truth
+    y_states = [fk.model.State(*s.squeeze()) for s in y[0]]
+    fig, ax = fk.plot.plot_states(y_states, vmin=None, vmax=None, figsize=(15, 5))
+    logger.figure("train/y", fig, step)
+    # force update
+    logger.flush()
+    return
+
+
 if __name__ == "__main__":
+    # seed experiment
+    SEED = 0
+    os.environ["PYTHONHASHSEED"] = str(SEED)
+    random.seed(SEED)
+    onp.random.seed(SEED)
+    torch.manual_seed(SEED)
+
     from argparse import ArgumentParser
-
-    # set logging level
-    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
-
     parser = ArgumentParser()
 
     # model args
-    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--n_channels", type=int, default=5)
-    parser.add_argument("--size", type=Tuple[int], nargs="+", default=(64, 64))
+    parser.add_argument("--size", type=int, nargs="+", default=(256, 256))
     parser.add_argument("--depth", type=int, default=10)
-    parser.add_argument("--n_filters", type=int, default=4)
-    parser.add_argument("--kernel_size", type=Tuple[int], nargs="+", default=(3, 3))
+    parser.add_argument("--n_filters", type=int, default=13)
+    parser.add_argument(
+        "--kernel_size",
+        type=int,
+        nargs="+",
+        default=(11, 7, 7),
+        help="Match C W H for 3d convolutions, ",
+    )
     parser.add_argument("--frames_in", type=int, default=2)
     parser.add_argument("--frames_out", type=int, default=5)
     parser.add_argument("--step", type=int, default=5)
-
     # optim
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--logdir", type=str, default="logs/resnet/train")
-
     # loader args
     parser.add_argument("--preload", action="store_true", default=False)
     parser.add_argument(
@@ -140,31 +193,58 @@ if __name__ == "__main__":
     parser.add_argument(
         "--val_search_regex", type=str, default="^three_points.*_PARAMS5.hdf5"
     )
+    # program
+    parser.add_argument("--logdir", type=str, default="logs/resnet/train")
+    parser.add_argument("--log_frequency", type=int, default=5)
+    parser.add_argument("--debug", action="store_true", default=False)
 
     hparams = parser.parse_args()
+
+    # set logging level
+    logging.basicConfig(
+        stream=sys.stdout, level=logging.DEBUG if hparams.debug else logging.WARNING
+    )
+
     logging.info(hparams)
 
+    # get logger
+    logging.info("Started logger at: {}".format(hparams.logdir))
+    logger = SummaryWriter(hparams.logdir)
+
     # get data
-    in_shape = (hparams.batch_size, *hparams.size, hparams.n_channels)
-    train_dataloader = create_dataloader(
-        hparams.root,
+    in_shape = (
         hparams.batch_size,
         hparams.frames_in,
-        hparams.frames_out,
-        hparams.step,
-        in_shape,
-        hparams.train_search_regex,
-        hparams.preload,
+        hparams.n_channels,
+        *hparams.size,
+    )
+    train_dataloader = create_dataloader(
+        root=hparams.root,
+        batch_size=hparams.batch_size,
+        frames_in=hparams.frames_in,
+        frames_out=hparams.frames_out,
+        step=hparams.step,
+        shape=(
+            hparams.frames_in + hparams.frames_out,
+            hparams.n_channels,
+            *hparams.size,
+        ),
+        search_regex=hparams.train_search_regex,
+        preload=hparams.preload,
     )
     val_dataloader = create_dataloader(
-        hparams.root,
-        hparams.batch_size,
-        hparams.frames_in,
-        hparams.frames_out,
-        hparams.step,
-        in_shape,
-        hparams.val_search_regex,
-        hparams.preload,
+        root=hparams.root,
+        batch_size=hparams.batch_size,
+        frames_in=hparams.frames_in,
+        frames_out=hparams.frames_out,
+        step=hparams.step,
+        shape=(
+            hparams.frames_in + hparams.frames_out,
+            hparams.n_channels,
+            *hparams.size,
+        ),
+        search_regex=hparams.val_search_regex,
+        preload=hparams.preload,
     )
     #
     n_train_samples = len(train_dataloader.dataset)
@@ -176,34 +256,56 @@ if __name__ == "__main__":
     rng = random.PRNGKey(0)
     resnet = ResNet(
         hidden_channels=hparams.n_filters,
-        out_channels=hparams.frames_out,
+        out_channels=1,
         kernel_size=hparams.kernel_size,
         strides=tuple([1] * len(hparams.kernel_size)),
         padding="SAME",
         depth=hparams.depth,
+        input_format=("NCDWH", "IDWHO", "NCDWH"),
     )
     out_shape, params = resnet.init(rng, in_shape)
 
     # init optimiser
-    optimiser = optimizers.sgd(hparams.lr)
+    optimiser = optimizers.adam(hparams.lr)
     optimiser_state = optimiser.init_fn(params)
 
     loss = 0.0
+    step = 0
     for i in tqdm(range(hparams.epochs), desc="Epochs"):
         # training
         pbar = tqdm(train_dataloader, desc="Training samples", total=n_train_batches)
         for batch in pbar:
-            batch = jnp.transpose(batch, axes=())[:, 0]
-            # x, y = jnp.split(batch, (hparams.frames_in, hparams.frames_out), axis=1)
-            loss, optimiser_state = update(resnet, optimiser, i, optimiser_state, batch)
-            pbar.set_postfix_str("Loss: {}".format(loss))
+            batch = preprocess_batch(batch)
+            x, y = batch[:, : hparams.frames_in], batch[:, hparams.frames_in :]
 
-        # # validating
-        # pbar = tqdm(train_dataloader, desc="Validation samples", total=n_train_batches)
-        # for batch in pbar:
-        #     # x, y = jnp.split(batch, (hparams.frames_in, hparams.frames_out), axis=1)
-        #     x = y = batch
-        #     y_hat = resnet.apply(params, batch)[:, 0]
-        #     loss = compute_loss(y_hat, y)
-        #     pbar.set_postfix_str("Loss: {}".format(loss))
-        #     log_step(loss, y_hat, y, "val")
+            loss = 0.0
+            u_t1 = x
+            y_hat_stacked = []
+            for t in range(hparams.frames_out):
+                u_t2 = y[:, t : t + 1]
+                j, y_hat, optimiser_state = update(
+                    resnet, optimiser, t, optimiser_state, u_t1, u_t2
+                )
+                y_hat_stacked += [y_hat]
+                u_t1 = jnp.concatenate([u_t1[:, 1:], y_hat], axis=1)
+                loss += j
+
+            y_hat_stacked = jnp.stack(y_hat_stacked, axis=1)
+            logging_step(logger, loss, x, y_hat_stacked, y, step, hparams.log_frequency)
+            pbar.set_postfix_str("Loss: {:.6f}".format(loss))
+            step = step + 1
+
+
+# @jax.jit
+# def learning_step(model, optimiser, optimiser_state, x, y, frames_out):
+
+#     _update = lambda l, u1, u2: update(model, optimiser, optimiser_state, u1, u2)
+
+#     jax.lax.fori_loop(0, frames_out, _update, (0., x, y))
+#     loss = 0.
+#     u_t1 = x
+#     for i in range(hparams.frames_out):
+#         u_t2 = y[:, i:i + 1]
+#         j, y_hat, optimiser_state = update(resnet, optimiser, i, optimiser_state, u_t1, u_t2)
+#         u_t1 = jnp.concatenate([u_t1[:, 1:], y_hat], axis=1)
+#         loss += j
