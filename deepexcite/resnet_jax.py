@@ -211,7 +211,7 @@ def main(hparams):
         strides=tuple([1] * len(hparams.kernel_size)),
         padding="SAME",
         depth=hparams.depth,
-        input_format=("NCDWH", "IDWHO", "NCDWH"),
+        input_format=(hparams.input_format, "IDWHO", hparams.input_format),
     )
     out_shape, params = resnet.init(rng, in_shape)
 
@@ -269,12 +269,13 @@ if __name__ == "__main__":
         "--kernel_size",
         type=int,
         nargs="+",
-        default=(11, 7, 7),
+        default=(5, 3, 3),
         help="CWH",
     )
     parser.add_argument("--frames_in", type=int, default=2)
     parser.add_argument("--frames_out", type=int, default=5)
     parser.add_argument("--step", type=int, default=5)
+    parser.add_argument("--input_format", type=str, default="NCDWH")
     # optim
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--epochs", type=int, default=100)
