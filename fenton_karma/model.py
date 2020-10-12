@@ -58,13 +58,6 @@ def init(shape):
 
 
 @jax.jit
-def _forward(state, t, t_end, params, D, stimuli, dt, dx):
-    # iterate
-    state = jax.lax.fori_loop(t, t_end, lambda i, state: step(state, i, params, D, stimuli, dt, dx), init_val=state)
-    return state
-
-
-@jax.jit
 def step(state, t, params, D, stimuli, dt, dx):
     # apply stimulus
     u_stimulated = stimulate(t, state.u, stimuli)
@@ -135,6 +128,13 @@ def stimulate(t, X, stimuli):
         active &= (np.mod(stimulus.protocol.start - t + 1, stimulus.protocol.period) < stimulus.protocol.duration)
         stimulated = np.where(stimulus.field * (active), stimulus.field, stimulated)
     return np.where(stimulated != 0, stimulated, X)
+
+
+@jax.jit
+def _forward(state, t, t_end, params, D, stimuli, dt, dx):
+    # iterate
+    state = jax.lax.fori_loop(t, t_end, lambda i, state: step(state, i, params, D, stimuli, dt, dx), init_val=state)
+    return state
 
 
 @functools.partial(jax.jit, static_argnums=(1, 2))

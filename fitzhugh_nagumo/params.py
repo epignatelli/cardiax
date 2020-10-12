@@ -8,11 +8,6 @@ class Params(NamedTuple):
     c: float = 0.08
 
 
-class State(NamedTuple):
-    v: np.ndarray
-    w: np.ndarray
-
-
 class Stimulus(NamedTuple):
     start: int
     duration: int

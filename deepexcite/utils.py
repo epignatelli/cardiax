@@ -1,3 +1,7 @@
+import os
+import sys
+import random
+import numpy as onp
 import torch
 from torch import nn
 
@@ -83,3 +87,11 @@ class Downsample:
 
     def __call__(self, x):
         return nn.functional.interpolate(x, self.size)
+
+
+def seed_experiment(seed: int=0):
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    random.seed(seed)
+    onp.random.seed(seed)
+    torch.manual_seed(seed)
+    return

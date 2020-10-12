@@ -1,8 +1,13 @@
+import functools
 import jax
 import jax.numpy as np
-import functools
 import matplotlib.pyplot as plt
 import plot
+
+
+class State(NamedTuple):
+    v: np.ndarray
+    w: np.ndarray
 
 
 def forward(shape,
@@ -41,24 +46,6 @@ def forward(shape,
     return states
 
 
-@jax.jit
-def _forward(state, t, t_end, params, diffusivity, stimuli, dt, dx):
-    # iterate
-    state = jax.lax.fori_loop(t, t_end, lambda i, state: step(state, i, params, diffusivity, stimuli, dt, dx), state)
-    return state
-
-
-@functools.partial(jax.jit, static_argnums=(1, 2))
-def _forward_stack(state, t, t_end, params, diffusivity, stimuli, dt, dx):
-    # iterate
-    def _step(state, i):
-        new_state = step(state, i, params, diffusivity, stimuli, dt, dx)
-        return (new_state, new_state)
-    xs = np.arange(t, t_end)
-    last_state, states = jax.lax.scan(_step, state, xs)
-    return states
-
-
 @functools.partial(jax.jit, static_argnums=0)
 def init(shape):
     rng = jax.random.PRNGKey(0)
@@ -92,17 +79,13 @@ def step(state, t, params, diffusivity, stimuli, dt, dx):
     beta = params.b
     gamma = params.a
 
-    # compute time gradients
-    # d_v = laplacian_v + params.c * (v - v ** 3 / 3 - w)
-    # d_w = params.c * (v - params.b * w + params.a)
-
     d_v = laplacian_v + (v - v ** 3 / 3 - w)
     d_w = eps * (v + beta - gamma * w)
 
     # euler update
-    v += d_v * dt
-    w += d_w * dt
-    return np.asarray((v, w))
+    v += d_v[1:-1, 1:-1] * dt
+    w += d_w[1:-1, 1:-1] * dt
+    return State(v, w)
 
 
 @functools.partial(jax.jit, static_argnums=1)
@@ -131,17 +114,23 @@ def stimulate(t, X, stimuli):
 
 @jax.jit
 def neumann(X):
-    X = jax.ops.index_update(X, jax.ops.index[0], X[1])
-    X = jax.ops.index_update(X, jax.ops.index[-1], X[-2])
-    X = jax.ops.index_update(X, jax.ops.index[..., 0], X[..., 1])
-    X = jax.ops.index_update(X, jax.ops.index[..., -1], X[..., -2])
+    X = np.pad(X, 1, mode="edge")
     return X
 
 
 @jax.jit
-def neumann_on_grad(X):
-    X = jax.ops.index_update(X, jax.ops.index[0], 0)
-    X = jax.ops.index_update(X, jax.ops.index[-1], 0)
-    X = jax.ops.index_update(X, jax.ops.index[..., 0], 0)
-    X = jax.ops.index_update(X, jax.ops.index[..., -1], 0)
-    return X
+def _forward(state, t, t_end, params, diffusivity, stimuli, dt, dx):
+    # iterate
+    state = jax.lax.fori_loop(t, t_end, lambda i, state: step(state, i, params, diffusivity, stimuli, dt, dx), state)
+    return state
+
+
+@functools.partial(jax.jit, static_argnums=(1, 2))
+def _forward_stack(state, t, t_end, params, diffusivity, stimuli, dt, dx):
+    # iterate
+    def _step(state, i):
+        new_state = step(state, i, params, diffusivity, stimuli, dt, dx)
+        return (new_state, new_state)
+    xs = np.arange(t, t_end)
+    last_state, states = jax.lax.scan(_step, state, xs)
+    return states

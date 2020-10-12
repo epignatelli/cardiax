@@ -4,6 +4,7 @@ from typing import NamedTuple, Callable, Tuple
 from functools import partial
 import math
 import logging
+import json
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import jax
@@ -150,66 +151,15 @@ def logging_step(logger, loss, x, y_hat, y, step, frequency):
     return
 
 
-if __name__ == "__main__":
-    # seed experiment
-    SEED = 0
-    os.environ["PYTHONHASHSEED"] = str(SEED)
-    random.seed(SEED)
-    onp.random.seed(SEED)
-    torch.manual_seed(SEED)
+def main(hparams):
+    # set logger
+    logdir = os.path.join(hparams.logdir, hparams.experiment)
+    logging.info("Started logger at: {}".format(logdir))
+    logger = SummaryWriter(logdir)
 
-    from argparse import ArgumentParser
-    parser = ArgumentParser()
-
-    # model args
-    parser.add_argument("--batch_size", type=int, default=4)
-    parser.add_argument("--n_channels", type=int, default=5)
-    parser.add_argument("--size", type=int, nargs="+", default=(256, 256))
-    parser.add_argument("--depth", type=int, default=10)
-    parser.add_argument("--n_filters", type=int, default=13)
-    parser.add_argument(
-        "--kernel_size",
-        type=int,
-        nargs="+",
-        default=(11, 7, 7),
-        help="Match C W H for 3d convolutions, ",
-    )
-    parser.add_argument("--frames_in", type=int, default=2)
-    parser.add_argument("--frames_out", type=int, default=5)
-    parser.add_argument("--step", type=int, default=5)
-    # optim
-    parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--epochs", type=int, default=100)
-    # loader args
-    parser.add_argument("--preload", action="store_true", default=False)
-    parser.add_argument(
-        "--root",
-        type=str,
-        default="/media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/",
-    )
-    parser.add_argument(
-        "--train_search_regex", type=str, default="^spiral.*_PARAMS5.hdf5"
-    )
-    parser.add_argument(
-        "--val_search_regex", type=str, default="^three_points.*_PARAMS5.hdf5"
-    )
-    # program
-    parser.add_argument("--logdir", type=str, default="logs/resnet/train")
-    parser.add_argument("--log_frequency", type=int, default=5)
-    parser.add_argument("--debug", action="store_true", default=False)
-
-    hparams = parser.parse_args()
-
-    # set logging level
-    logging.basicConfig(
-        stream=sys.stdout, level=logging.DEBUG if hparams.debug else logging.WARNING
-    )
-
+    # save hparams
     logging.info(hparams)
-
-    # get logger
-    logging.info("Started logger at: {}".format(hparams.logdir))
-    logger = SummaryWriter(hparams.logdir)
+    json.dump(vars(hparams), open(os.path.join(logger.log_dir, "hparams.json"), "w"))
 
     # get data
     in_shape = (
@@ -253,7 +203,7 @@ if __name__ == "__main__":
     n_val_batches = math.floor(n_train_batches / hparams.batch_size)
 
     # init model parameters
-    rng = random.PRNGKey(0)
+    rng = jax.random.PRNGKey(0)
     resnet = ResNet(
         hidden_channels=hparams.n_filters,
         out_channels=1,
@@ -294,18 +244,64 @@ if __name__ == "__main__":
             logging_step(logger, loss, x, y_hat_stacked, y, step, hparams.log_frequency)
             pbar.set_postfix_str("Loss: {:.6f}".format(loss))
             step = step + 1
+    return loss, optimiser_state
 
 
-# @jax.jit
-# def learning_step(model, optimiser, optimiser_state, x, y, frames_out):
+if __name__ == "__main__":
+    # seed experiment
+    SEED = 0
+    os.environ["PYTHONHASHSEED"] = str(SEED)
+    random.seed(SEED)
+    onp.random.seed(SEED)
+    torch.manual_seed(SEED)
 
-#     _update = lambda l, u1, u2: update(model, optimiser, optimiser_state, u1, u2)
+    from argparse import ArgumentParser
 
-#     jax.lax.fori_loop(0, frames_out, _update, (0., x, y))
-#     loss = 0.
-#     u_t1 = x
-#     for i in range(hparams.frames_out):
-#         u_t2 = y[:, i:i + 1]
-#         j, y_hat, optimiser_state = update(resnet, optimiser, i, optimiser_state, u_t1, u_t2)
-#         u_t1 = jnp.concatenate([u_t1[:, 1:], y_hat], axis=1)
-#         loss += j
+    parser = ArgumentParser()
+
+    # model args
+    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--n_channels", type=int, default=5)
+    parser.add_argument("--size", type=int, nargs="+", default=(256, 256))
+    parser.add_argument("--depth", type=int, default=10)
+    parser.add_argument("--n_filters", type=int, default=13)
+    parser.add_argument(
+        "--kernel_size",
+        type=int,
+        nargs="+",
+        default=(11, 7, 7),
+        help="CWH",
+    )
+    parser.add_argument("--frames_in", type=int, default=2)
+    parser.add_argument("--frames_out", type=int, default=5)
+    parser.add_argument("--step", type=int, default=5)
+    # optim
+    parser.add_argument("--lr", type=float, default=0.001)
+    parser.add_argument("--epochs", type=int, default=100)
+    # loader args
+    parser.add_argument("--preload", action="store_true", default=False)
+    parser.add_argument(
+        "--root",
+        type=str,
+        default="/media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/",
+    )
+    parser.add_argument(
+        "--train_search_regex", type=str, default="^spiral.*_PARAMS5.hdf5"
+    )
+    parser.add_argument(
+        "--val_search_regex", type=str, default="^three_points.*_PARAMS5.hdf5"
+    )
+    # program
+    parser.add_argument("--logdir", type=str, default="logs/resnet/train")
+    parser.add_argument("--log_frequency", type=int, default=5)
+    parser.add_argument("--debug", action="store_true", default=False)
+    parser.add_argument("--experiment", type=str, default="")
+
+    hparams = parser.parse_args()
+
+    # set logging level
+    logging.basicConfig(
+        stream=sys.stdout, level=logging.DEBUG if hparams.debug else logging.INFO
+    )
+
+    main(hparams)

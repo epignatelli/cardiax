@@ -86,6 +86,7 @@ class SummaryWriter(object):
 
         log_dir = os.path.join(log_dir, "{}".format(len(os.listdir(log_dir))))
 
+        self.log_dir = log_dir
         self._event_writer = EventFileWriter(log_dir, 10, 120, None)
         self._step = 0
         self._closed = False
