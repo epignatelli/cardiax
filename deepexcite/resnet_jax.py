@@ -121,7 +121,7 @@ def learning_step(model, optimiser, refeed, iteration, optimiser_state, x, y):
         y_hat_stacked += [y_hat]
         u_t1 = jnp.concatenate([u_t1[:, 1:], y_hat], axis=1)
         loss += j
-    return loss, jnp.stack(y_hat_stacked, axis=1)
+    return optimiser_state, loss, jnp.stack(y_hat_stacked, axis=1)
 
 
 def logging_step(logger, loss, x, y_hat, y, step, frequency):
@@ -253,7 +253,7 @@ def main(hparams):
             x, y = batch[:, : hparams.frames_in], batch[:, hparams.frames_in :]
 
             # learning
-            loss, y_hat_stacked = learning_step(resnet, optimiser, hparams.refeed, iteration, optimiser_state, x, y)
+            optimiser_state, loss, y_hat_stacked = learning_step(resnet, optimiser, hparams.refeed, iteration, optimiser_state, x, y)
 
             # logging
             logging_step(logger, loss, x, y_hat_stacked.squeeze(2), y, iteration, hparams.log_frequency)
