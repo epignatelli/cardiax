@@ -25,6 +25,7 @@ import os
 import io
 import struct
 import time
+import logging
 import warnings
 import wave
 import matplotlib as mpl
@@ -41,7 +42,7 @@ import tensorflow as tf
 from tensorflow.core.util import event_pb2
 from tensorflow.python.summary.writer.event_file_writer import EventFileWriter
 # pylint: enable=g-direct-tensorflow-import
-from jax.experimental import jax2tf
+import pickle
 
 
 def _pack_images(images, rows, cols):
@@ -85,12 +86,14 @@ class SummaryWriter(object):
             tf.io.gfile.makedirs(log_dir)
 
         log_dir = os.path.join(log_dir, "{}".format(len(os.listdir(log_dir))))
+        logging.info("Created new logger at: {}".format(log_dir))
 
         self.log_dir = log_dir
         self._event_writer = EventFileWriter(log_dir, 10, 120, None)
         self._step = 0
         self._closed = False
         self._enabled = enable
+        self._best_loss = float("inf")
 
     def add_summary(self, summary, step):
         if not self._enabled:
@@ -366,6 +369,32 @@ class SummaryWriter(object):
                 value=[tf.compat.v1.Summary.Value(
                         tag=tag, metadata=smd, tensor=tensor)])
         self.add_summary(summary, step)
+
+    def checkpoint(self, tag, params, step, loss=None):
+        """Saves a copy of the model parameters using pickle
+
+        Args:
+            tag: str: label for this data
+            params: a PyTree containing the parameters of the model
+            step: int: training step
+            monitor: metric to evaluate the performance of the model
+            best_only: if True, models with a lower performance will not be saved
+        """
+        filename_last = str(tag) + str(step)
+        parent = os.path.join(self.log_dir, "checkpoints")
+        os.makedirs(parent, exist_ok=True)
+        if loss is not None:
+            filename_last += "_L{:.6f}".format(loss)
+        filepath_last = os.path.join(parent, filename_last + ".pickle")
+        with open(filepath_last, "wb") as f:
+            pickle.dump(params, f)
+        if loss is None or loss > self._best_loss:
+            return
+        self._best_loss = loss
+        filename_best = str(tag) + "best" + "_L{:.6f}".format(loss)
+        filepath_best = os.path.join(parent, filename_last + ".pickle")
+        with open(filepath_last, "wb") as f:
+            pickle.dump(params, f)
 
 
 # Copied from gin/tf/utils.py:GinConfigSaverHook

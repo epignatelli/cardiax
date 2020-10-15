@@ -1,16 +1,15 @@
-import jax
-import jax.numpy as np
-import numpy as onp
+import math
+import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 from matplotlib.animation import FuncAnimation
-from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.ticker import FuncFormatter
-import IPython
-from IPython.display import HTML
-import math
-from . import convert
+
+
+# plt.rcParams.update({
+#     "text.usetex": True,
+#     "font.family": "sans-serif",
+#     "font.sans-serif": ["Helvetica"]})
 
 
 def plot_state(state, **kwargs):
@@ -48,6 +47,40 @@ def plot_states(states, **kwargs):
             ax[t, i].set_xlabel("x [cm]")
             ax[t, i].yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
             ax[t, i].set_ylabel("y [cm]")
+    return fig, ax
+
+
+def compare_states(states_a, states_b, **kwargs):
+    fig, ax = plt.subplots(len(states_a), len(states_a[0]) * 3, figsize=(kwargs.pop("figsize", None) or (50, 5)))
+    ax = ax if ax.ndim > 1 else ax.reshape(1, -1)
+    vmin = kwargs.pop("vmin", 0)
+    vmax = kwargs.pop("vmax", 1)
+    cmap = kwargs.pop("cmap", "RdBu")
+
+    for t, state in enumerate(states_a):
+        state_a, state_b = states_a[t], states_b[t]
+        a, b = tuple(states_a[t]), tuple(states_b[t])
+        for i in range(0, len(ax), 2):
+            im = ax[t, i].imshow(a[i], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
+            ax[t, i].set_title(state_a._fields[i])
+            ax[t, i].xaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
+            ax[t, i].set_xlabel("x [cm]")
+            ax[t, i].yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
+            ax[t, i].set_ylabel("y [cm]")
+            im = ax[t, i + 1].imshow(b[i], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
+            plt.colorbar(im, ax=ax[t, i + 1])
+            ax[t, i + 1].set_title("\hat{%s}" % state_b._fields[i])
+            ax[t, i + 1].xaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
+            ax[t, i + 1].set_xlabel("x [cm]")
+            ax[t, i + 1].yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
+            ax[t, i + 1].set_ylabel("y [cm]")
+            im = ax[t, i + 2].imshow(a[i] - b[i], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
+            plt.colorbar(im, ax=ax[t, i + 2])
+            ax[t, i + 2].set_title("\hat{%s} - {%s}" % (state_b._fields[i], state_b._fields[i]))
+            ax[t, i + 2].xaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
+            ax[t, i + 2].set_xlabel("x [cm]")
+            ax[t, i + 2].yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
+            ax[t, i + 2].set_ylabel("y [cm]")
     return fig, ax
 
 

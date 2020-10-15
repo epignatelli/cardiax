@@ -13,13 +13,13 @@ import jax.numpy as jnp
 import numpy as onp
 import torch
 from jax.experimental import optimizers, stax
-from jax.experimental.stax import (Elu, FanInSum, FanOut,
-                                   GeneralConv, Identity)
+from jax.experimental.stax import Elu, FanInSum, FanOut, GeneralConv, Identity
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from dataset import ConcatSequence
 from jaxboard import SummaryWriter
+from utils import seed_experiment
 
 
 class Module(NamedTuple):
@@ -37,11 +37,12 @@ def ResidualBlock(out_channels, kernel_size, stride, padding, input_format):
         *stax.serial(FanOut(2), stax.parallel(double_conv, Identity), FanInSum, Elu)
     )
 
+
 def SumLastInputFrame():
-  """Layer construction function for a fan-in sum layer."""
-  init_fun = lambda rng, input_shape: (input_shape[0], ())
-  apply_fun = lambda params, inputs, **kwargs: inputs[0] + inputs[1][:, -2:-1]
-  return init_fun, apply_fun
+    """Layer construction function for a fan-in sum layer."""
+    init_fun = lambda rng, input_shape: (input_shape[0], ())
+    apply_fun = lambda params, inputs, **kwargs: inputs[0] + inputs[1][:, -2:-1]
+    return init_fun, apply_fun
 
 
 def ResNet(
@@ -50,23 +51,16 @@ def ResNet(
     return Module(
         *(
             stax.serial(
-                FanOut(2),
-                stax.parallel(
-                    stax.serial(
-                        GeneralConv(
-                            (input_format), hidden_channels, kernel_size, strides, padding
-                        ),
-                        *[
-                            ResidualBlock(
-                                hidden_channels, kernel_size, strides, padding, input_format
-                            )
-                            for _ in range(depth)
-                        ],
-                        GeneralConv(input_format, out_channels, kernel_size, strides, padding)
-                    ),
-                    Identity
+                GeneralConv(
+                    (input_format), hidden_channels, kernel_size, strides, padding
                 ),
-                SumLastInputFrame()
+                *[
+                    ResidualBlock(
+                        hidden_channels, kernel_size, strides, padding, input_format
+                    )
+                    for _ in range(depth)
+                ],
+                GeneralConv(input_format, out_channels, kernel_size, strides, padding)
             )
         )
     )
@@ -82,7 +76,7 @@ def compute_loss(y_hat, y):
     grad_loss_2 = jnp.mean((grad_y_hat_2 - grad_y_2) ** 2)  # mse
     grad_loss = grad_loss_1 + grad_loss_2
     recon_loss = jnp.mean((y_hat - y) ** 2)  # mse
-    return (grad_loss + recon_loss)# * (jnp.diff(y) ** 2).mean()
+    return grad_loss + recon_loss  # * (jnp.diff(y) ** 2).mean()
 
 
 @partial(jax.jit, static_argnums=0)
@@ -109,42 +103,76 @@ def preprocess_batch(batch):
 
 
 @partial(jax.jit, static_argnums=(0, 1, 2))
-def learning_step(model, optimiser, refeed, iteration, optimiser_state, x, y):
+def training_step(model, optimiser, refeed, iteration, optimiser_state, x, y):
+    # init state
     loss = 0.0
     u_t1 = x
     y_hat_stacked = []
     for t in range(refeed):
-        u_t2 = y[:, t:t + 1]
+        u_t2 = y[:, t][:, None, :, :, :]
         j, y_hat, optimiser_state = update(
             model, optimiser, iteration, optimiser_state, u_t1, u_t2
         )
-        y_hat_stacked += [y_hat]
-        u_t1 = jnp.concatenate([u_t1[:, 1:], y_hat], axis=1)
+        # update state
         loss += j
-    return optimiser_state, loss, jnp.stack(y_hat_stacked, axis=1)
+        u_t1 = jnp.concatenate([u_t1[:, 1:], y_hat], axis=1)
+        y_hat_stacked += [y_hat]
+    return loss, jnp.concatenate(y_hat_stacked, axis=1), optimiser_state
 
 
-def logging_step(logger, loss, x, y_hat, y, step, frequency):
+@partial(jax.jit, static_argnums=(0, 1, 2))
+def learning_step_fast(model, optimiser, refeed, iteration, optimiser_state, x, y):
+    def fun(i, inputs):
+        loss, x, optimiser_state = inputs
+        u_t2 = y[:, i][:, None, :, :, :]
+        loss, y_hat, optimiser_state = update(model, optimiser, iteration, optimiser_state, x, u_t2)
+        u_t1 = jnp.concatenate([x[:, 1:], y_hat], axis=1)
+        return (loss, u_t1, optimiser_state)
+    return jax.lax.fori_loop(0, refeed, fun, (0., x, optimiser_state))
+
+
+@partial(jax.jit, static_argnums=(0, 2))
+def validation_step(model, params, refeed, x, y):
+    # init state
+    loss = 0.0
+    u_t1 = x
+    y_hat_stacked = []
+    for t in range(refeed):
+        u_t2 = y[:, t][:, None, :, :, :]
+        j, y_hat = forward(model, params, u_t1, u_t2)
+        # update state
+        loss += j
+        u_t1 = jnp.concatenate([u_t1[:, 1:], y_hat], axis=1)
+        y_hat_stacked += [y_hat]
+    return loss, jnp.concatenate(y_hat_stacked, axis=1)
+
+
+def logging_step(logger, loss, x, y_hat, y, step, frequency, prefix):
     if step % frequency:
         return
+    figsize = (15, 2.5 * y_hat.shape[1])
     # log loss
-    logger.scalar("train/loss", loss, step=step)
+    logger.scalar("{}/loss".format(prefix), loss, step=step)
     # log input states
     x_states = [fk.model.State(*s.squeeze()) for s in x[0]]
-    fig, _ = fk.plot.plot_states(x_states, vmin=None, vmax=None, figsize=(15, 5))
-    logger.figure("train/x", fig, step)
+    fig, _ = fk.plot.plot_states(x_states, vmin=None, vmax=None, figsize=figsize)
+    logger.figure("{}/x".format(prefix), fig, step)
     # log predictions as images
     y_hat_states = [fk.model.State(*s.squeeze()) for s in y_hat[0]]
-    fig, _ = fk.plot.plot_states(y_hat_states, vmin=None, vmax=None, figsize=(15, 5))
-    logger.figure("train/y_hat", fig, step)
+    fig, _ = fk.plot.plot_states(y_hat_states, vmin=None, vmax=None, figsize=figsize)
+    logger.figure("{}/y_hat".format(prefix), fig, step)
     # log truth
     y_states = [fk.model.State(*s.squeeze()) for s in y[0]]
-    fig, _ = fk.plot.plot_states(y_states, vmin=None, vmax=None, figsize=(15, 5))
-    logger.figure("train/y", fig, step)
+    fig, _ = fk.plot.plot_states(y_states, vmin=None, vmax=None, figsize=figsize)
+    logger.figure("{}/y".format(prefix), fig, step)
     # log error
-    error_states = [fk.model.State(*s.squeeze()) for s in y_hat[0] - y[0]]
-    fig, _ = fk.plot.plot_states(error_states, vmin=None, vmax=None, figsize=(15, 5))
-    logger.figure("train/y_hat - y", fig, step)
+    error_states = [fk.model.State(*s.squeeze()) for s in y_hat[0] - y[0, :y_hat.shape[1]]]
+    fig, _ = fk.plot.plot_states(error_states, vmin=None, vmax=None, figsize=figsize)
+    logger.figure("{}/y_hat .format(prefix)- y", fig, step)
+    # y_hat_states = [fk.model.State(*s.squeeze()) for s in y_hat[0]]
+    # y_states = [fk.model.State(*s.squeeze()) for s in y[0]]
+    # fig, _ = fk.plot.compare_states(y_hat_states, y_states, vmin=None, vmax=None, figsize=figsize)
+    # logger.figure("{}/comparison".format(prefix), fig, step)
     # force update
     logger.flush()
     return
@@ -178,7 +206,6 @@ def create_dataloader(
 def main(hparams):
     # set logger
     logdir = os.path.join(hparams.logdir, hparams.experiment)
-    logging.info("Started logger at: {}".format(logdir))
     logger = SummaryWriter(logdir)
 
     # save hparams
@@ -218,6 +245,8 @@ def main(hparams):
     #
     n_train_samples = len(train_dataloader.dataset)
     n_train_batches = math.floor(n_train_samples / hparams.batch_size)
+    n_val_samples = len(val_dataloader.dataset)
+    n_val_batches = math.floor(n_val_samples / hparams.batch_size)
 
     # init model parameters
     in_shape = (
@@ -243,38 +272,63 @@ def main(hparams):
     optimiser_state = optimiser.init_fn(params)
 
     loss = 0.0
-    iteration = 0
+    train_iteration = 0
+    val_iteration = 0
     for i in tqdm(range(hparams.epochs), desc="Epochs"):
-        # training
-        pbar = tqdm(train_dataloader, desc="Training samples", total=n_train_batches)
-        for batch in pbar:
+        ## TRAINING
+        pbar_train = tqdm(
+            train_dataloader, desc="Training samples", total=n_train_batches, leave=True
+        )
+        pbar_train.reset()
+        for batch in pbar_train:
             # prepare data
-            batch = preprocess_batch(batch)
             x, y = batch[:, : hparams.frames_in], batch[:, hparams.frames_in :]
-
             # learning
-            optimiser_state, loss, y_hat_stacked = learning_step(resnet, optimiser, hparams.refeed, iteration, optimiser_state, x, y)
-
+            loss, y_hat_stacked, optimiser_state = learning_step_fast(
+                resnet, optimiser, hparams.refeed, train_iteration, optimiser_state, x, y
+            )
             # logging
-            logging_step(logger, loss, x, y_hat_stacked.squeeze(2), y, iteration, hparams.log_frequency)
-
+            logging_step(
+                logger, loss, x, y_hat_stacked, y, train_iteration, hparams.log_frequency, "train"
+            )
             # prepare next iteration
-            pbar.set_postfix_str("Loss: {:.6f}".format(loss))
-            iteration = iteration + 1
+            pbar_train.set_postfix_str("Loss: {:.6f}".format(loss))
+            train_iteration = train_iteration + 1
+        # checkpoint model
+        params = optimiser.params_fn(optimiser_state)
+        logger.checkpoint("resnet", params, train_iteration, loss)
 
-        if (i != 0) and (i % hparams.increase_frames_at == 0):
+        ## VALIDATING
+        pbar_val = tqdm(
+            val_dataloader, desc="Validating samples", total=n_val_batches, leave=True
+        )
+        pbar_val.reset()
+        for batch in pbar_val:
+            # prepare data
+            x, y = batch[:, : hparams.frames_in], batch[:, hparams.frames_in :]
+            # learning
+            val_loss, y_hat_stacked = validation_step(resnet, params, hparams.refeed, x, y)
+            # logging
+            logging_step(
+                logger, val_loss, x, y_hat_stacked, y, val_iteration, hparams.log_frequency, "val"
+            )
+            # prepare next iteration
+            pbar_val.set_postfix_str("Loss: {:.6f}".format(val_loss))
+            val_iteration = val_iteration + 1
+        # increase frames_out
+        if (i != 0) and (i % hparams.increase_at == 0) and (hparams.refeed < 20):
             hparams.refeed = hparams.refeed + 1
-            train_dataloader.dataset.frames_out = train_dataloader.dataset.frames_out + 1
+            train_dataloader.dataset.frames_out = hparams.refeed
+            assert hparams.refeed == train_dataloader.dataset.frames_out
+            logging.info(
+                "Increasing the amount of output frames to {}".format(hparams.refeed)
+            )
+
     return loss, optimiser_state
 
 
 if __name__ == "__main__":
-    # seed experiment
-    SEED = 0
-    os.environ["PYTHONHASHSEED"] = str(SEED)
-    random.seed(SEED)
-    onp.random.seed(SEED)
-    torch.manual_seed(SEED)
+    seed_experiment(0)
 
     from argparse import ArgumentParser
 
@@ -301,7 +355,7 @@ if __name__ == "__main__":
     # optim
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--increase_frames_at", type=int, default=3)
+    parser.add_argument("--increase_at", type=int, default=1)
     # loader args
     parser.add_argument("--preload", action="store_true", default=False)
     parser.add_argument(
@@ -313,13 +367,13 @@ if __name__ == "__main__":
         "--train_search_regex", type=str, default="^spiral.*_PARAMS5.hdf5"
     )
     parser.add_argument(
-        "--val_search_regex", type=str, default="^three_points.*_PARAMS5.hdf5"
+        "--val_search_regex", type=str, default="^spiral.*_PARAMS5.hdf5"
     )
     # program
     parser.add_argument("--logdir", type=str, default="logs/resnet/train")
+    parser.add_argument("--experiment", type=str, default="../debug")
     parser.add_argument("--log_frequency", type=int, default=5)
     parser.add_argument("--debug", action="store_true", default=False)
-    parser.add_argument("--experiment", type=str, default="debug")
 
     hparams = parser.parse_args()
 
