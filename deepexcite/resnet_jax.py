@@ -7,16 +7,14 @@ import sys
 from functools import partial
 from typing import Callable, NamedTuple, Tuple
 
-import fenton_karma as fk
 import jax
 import jax.numpy as jnp
-import numpy as onp
-import torch
 from jax.experimental import optimizers, stax
 from jax.experimental.stax import Elu, FanInSum, FanOut, GeneralConv, Identity
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+import fenton_karma as fk
 from dataset import ConcatSequence
 from jaxboard import SummaryWriter
 from utils import seed_experiment
@@ -67,7 +65,7 @@ def ResNet(
 
 
 @jax.jit
-def compute_loss(y_hat, y):
+def compute_loss(y_hat: jnp.ndarray, y: jnp.ndarray):
     grad_y_hat_1 = fk.model.gradient(y_hat, -1)
     grad_y_hat_2 = fk.model.gradient(y_hat, -2)
     grad_y_1 = fk.model.gradient(y, -1)
@@ -76,7 +74,7 @@ def compute_loss(y_hat, y):
     grad_loss_2 = jnp.mean((grad_y_hat_2 - grad_y_2) ** 2)  # mse
     grad_loss = grad_loss_1 + grad_loss_2
     recon_loss = jnp.mean((y_hat - y) ** 2)  # mse
-    return grad_loss + recon_loss  # * (jnp.diff(y) ** 2).mean()
+    return (grad_loss + recon_loss)
 
 
 @partial(jax.jit, static_argnums=0)
@@ -121,7 +119,7 @@ def training_step(model, optimiser, refeed, iteration, optimiser_state, x, y):
 
 
 @partial(jax.jit, static_argnums=(0, 1, 2))
-def learning_step_fast(model, optimiser, refeed, iteration, optimiser_state, x, y):
+def training_step_fast(model, optimiser, refeed, iteration, optimiser_state, x, y):
     def fun(i, inputs):
         loss, x, optimiser_state = inputs
         u_t2 = y[:, i][:, None, :, :, :]
@@ -271,39 +269,32 @@ def main(hparams):
     optimiser = optimizers.adam(hparams.lr)
     optimiser_state = optimiser.init_fn(params)
 
-    loss = 0.0
     train_iteration = 0
     val_iteration = 0
-    for i in tqdm(range(hparams.epochs), desc="Epochs"):
+    for i in range(hparams.epochs):
         ## TRAINING
-        pbar_train = tqdm(
-            train_dataloader, desc="Training samples", total=n_train_batches, leave=True
-        )
-        pbar_train.reset()
-        for batch in pbar_train:
+        train_loss = 0.0
+        for j, batch in enumerate(train_dataloader):
             # prepare data
             x, y = batch[:, : hparams.frames_in], batch[:, hparams.frames_in :]
             # learning
-            loss, y_hat_stacked, optimiser_state = learning_step_fast(
+            train_loss, y_hat_stacked, optimiser_state = training_step_fast(
                 resnet, optimiser, hparams.refeed, train_iteration, optimiser_state, x, y
             )
             # logging
             logging_step(
-                logger, loss, x, y_hat_stacked, y, train_iteration, hparams.log_frequency, "train"
+                logger, train_loss, x, y_hat_stacked, y, train_iteration, hparams.log_frequency, "train"
             )
             # prepare next iteration
-            pbar_train.set_postfix_str("Loss: {:.6f}".format(loss))
+            print("Epoch {}/{} - Training step {}/{} - Loss: {:.6f}\t\t".format(i, hparams.epochs, j, n_train_batches, train_loss), end="\r")
             train_iteration = train_iteration + 1
         # checkpoint model
-        params = optimiser.params_fn(optimiser_state)
-        logger.checkpoint("resnet", params, train_iteration, loss)
+        logger.checkpoint("resnet", optimiser.params_fn(optimiser_state), train_iteration, train_loss)
 
         ## VALIDATING
-        pbar_val = tqdm(
-            val_dataloader, desc="Validating samples", total=n_val_batches, leave=True
-        )
-        pbar_val.reset()
-        for batch in pbar_val:
+        val_loss = 0.0
+        params = optimiser.params_fn(optimiser_state)
+        for j, batch in enumerate(val_dataloader):
             # prepare data
             x, y = batch[:, : hparams.frames_in], batch[:, hparams.frames_in :]
             # learning
@@ -313,27 +304,26 @@ def main(hparams):
                 logger, val_loss, x, y_hat_stacked, y, val_iteration, hparams.log_frequency, "val"
             )
             # prepare next iteration
-            pbar_val.set_postfix_str("Loss: {:.6f}".format(val_loss))
+            print("Epoch {}/{} - Evaluation step {}/{} - Loss: {:.6f}\t\t".format(i, hparams.epochs, j, n_val_batches, val_loss), end="\r")
             val_iteration = val_iteration + 1
-        # increase frames_out
-        if (i != 0) and (i % hparams.increase_at == 0) and (hparams.refeed < 20):
+
+        ## SCHEDULED UPDATES
+        if (i != 0) and (train_loss <= hparams.increase_at) and (hparams.refeed < 20):
             hparams.refeed = hparams.refeed + 1
             train_dataloader.dataset.frames_out = hparams.refeed
-            assert hparams.refeed == train_dataloader.dataset.frames_out
+            val_dataloader.dataset.frames_out = hparams.refeed
+            assert hparams.refeed == train_dataloader.dataset.frames_out == val_dataloader.dataset.frames_out
             logging.info(
                 "Increasing the amount of output frames to {}".format(hparams.refeed)
             )
 
-    return loss, optimiser_state
+    return optimiser_state
 
 
 if __name__ == "__main__":
-    seed_experiment(0)
-
     from argparse import ArgumentParser
-
+    seed_experiment(0)
     parser = ArgumentParser()
-
     # model args
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--n_channels", type=int, default=5)
@@ -355,7 +345,7 @@ if __name__ == "__main__":
     # optim
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--increase_at", type=int, default=1)
+    parser.add_argument("--increase_at", type=float, default=0.)
     # loader args
     parser.add_argument("--preload", action="store_true", default=False)
     parser.add_argument(
@@ -374,12 +364,10 @@ if __name__ == "__main__":
     parser.add_argument("--experiment", type=str, default="../debug")
     parser.add_argument("--log_frequency", type=int, default=5)
     parser.add_argument("--debug", action="store_true", default=False)
-
+    # parse arguments
     hparams = parser.parse_args()
-
     # set logging level
     logging.basicConfig(
         stream=sys.stdout, level=logging.DEBUG if hparams.debug else logging.INFO
     )
-
     main(hparams)
