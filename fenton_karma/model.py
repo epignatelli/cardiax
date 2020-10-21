@@ -10,8 +10,8 @@ class State(NamedTuple):
     v: np.ndarray
     w: np.ndarray
     u: np.ndarray
-    l: np.ndarray
-    j: np.ndarray
+    l: np.ndarray = None
+    j: np.ndarray = None
 
 
 def forward(shape,

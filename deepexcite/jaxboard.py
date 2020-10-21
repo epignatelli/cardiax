@@ -380,7 +380,7 @@ class SummaryWriter(object):
             monitor: metric to evaluate the performance of the model
             best_only: if True, models with a lower performance will not be saved
         """
-        filename_last = str(tag) + str(step)
+        filename_last = str(tag) + "_last"
         parent = os.path.join(self.log_dir, "checkpoints")
         os.makedirs(parent, exist_ok=True)
         if loss is not None:
@@ -392,8 +392,8 @@ class SummaryWriter(object):
             return
         self._best_loss = loss
         filename_best = str(tag) + "best" + "_L{:.6f}".format(loss)
-        filepath_best = os.path.join(parent, filename_last + ".pickle")
-        with open(filepath_last, "wb") as f:
+        filepath_best = os.path.join(parent, filename_best + ".pickle")
+        with open(filepath_best, "wb") as f:
             pickle.dump(params, f)
 
 

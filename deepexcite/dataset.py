@@ -1,19 +1,58 @@
-from pytorch_lightning import seed_everything
-seed_everything(2)
+import logging
 import os
 import random
 import re
-import numpy as np
+from typing import Callable
+
 import h5py
-import torch
+import numpy as onp
+import jax
 import fenton_karma as fk
-import os
-from os import path
-import struct
-import array
-import jax.numpy as jnp
-import gzip
-import urllib
+
+
+class DataStream():
+    def __init__(self, dataset, batch_size, collate_fn, seed=None):
+        # public:
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.collate_fn = collate_fn
+        self.seed = seed
+        self.n_batches, _ = divmod(len(self.dataset), self.batch_size)
+        self.indices = onp.array(range(self.n_batches * self.batch_size))
+
+        # shuffling
+        if seed is not None:
+            rng = jax.random.PRNGKey(self.seed)
+            self.indices = jax.random.permutation(rng, self.indices)
+        # batching
+        self.batch_indices = iter(onp.split(self.indices, self.n_batches))  # List[onp.ndarray]
+
+    def __len__(self):
+        return self.n_batches
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        indices = next(self.batch_indices)
+        batch = [self.dataset[i] for i in indices]
+        return self.collate_fn(batch)
+
+    @property
+    def frames_out(self):
+        return self.dataset.frames_out
+
+    @frames_out.setter
+    def frames_out(self, value):
+        self.dataset.frames_out = value
+        self.reset()
+
+    def increase_frames(self):
+        self.frames_out += 1
+        return True
+
+    def reset(self):
+        self.batch_indices = iter(onp.split(self.indices, self.n_batches))
 
 
 class ConcatSequence():
@@ -24,8 +63,7 @@ class ConcatSequence():
                  step=1,
                  keys=None,
                  transform=None,
-                 preload=False,
-                 clean_from_stimuli=False):
+                 preload=False):
         # public:
         self.root = root
 
@@ -41,13 +79,12 @@ class ConcatSequence():
         if len(filenames) == 0:
             raise FileNotFoundError("No datasets found that match regex {} in {}".format(keys, root))
 
-        self.datasets = [HDF5Sequence(filename,
-                                      frames_in,
-                                      frames_out,
-                                      step,
-                                      transform,
-                                      preload,
-                                      clean_from_stimuli) for filename in filenames]
+        self.datasets = [HDF5Sequence(filename=filename,
+                                      frames_in=frames_in,
+                                      frames_out=frames_out,
+                                      step=step,
+                                      transform=transform,
+                                      preload=preload) for filename in filenames]
         return
 
     def __len__(self):
@@ -96,8 +133,7 @@ class HDF5Sequence():
                  frames_out=0,
                  step=1,
                  transform=None,
-                 preload=False,
-                 clean_from_stimuli=False):
+                 preload=False):
         # public:
         self.frames_in = frames_in
         self.frames_out = frames_out
@@ -105,35 +141,28 @@ class HDF5Sequence():
         self.transform = transform
         self.filename = filename
         self.preload = preload
-        self.states = None
-        self.clean_from_stimuli = clean_from_stimuli
-
         # private:
         self._is_open = False
-        self._tentatives = 0
+
+        self.states = None
+        self.stimuli = None
+        self.open()
         return
 
     def __getitem__(self, idx):
-        if not self._is_open:
-            self.open()
+        # from idx of start to slice to take the sequence
         if isinstance(idx, slice):
             idx = slice(idx.start, idx.start + (self.frames_in + self.frames_out) * self.step, self.step)
+        elif isinstance(idx, onp.ndarray):
+            idx = tuple([slice(i, i + (self.frames_in + self.frames_out) * self.step, self.step) for i in idx])
         else:
             idx = slice(idx, idx + (self.frames_in + self.frames_out) * self.step, self.step)
 
-        if self.clean_from_stimuli and self.is_stimulated_within(idx.start, idx.stop):
-            if self._tentatives < 30:
-                self._tentatives += 1
-                return self[idx.stop]
-            else:
-                print("Spent {} tentatives to acquire data without stimulus, but failed. The sample may contain stimuli.")
-
-        states = np.array(self.states[idx])
+        states = self.states[idx, :3]  # take only the first three channels
 
         if self.transform is not None:
             states = self.transform(states)
 
-        self._tentatives = 0
         return states
 
     def __len__(self):
@@ -144,59 +173,14 @@ class HDF5Sequence():
         self.states = file["states"]
         self.stimuli = fk.io.load_stimuli(file)
         if self.preload:
-            self.states = self.states[:]
+            logging.debug("Preloading dataset {}".format(self.filename))
+            if not isinstance(self.preload, Callable):
+                self.preload = onp.array
+            self.states = self.preload(self.states[:])
         self._is_open = True
         return
 
-    def is_stimulated_within(self, start, end):
-        for stimulus in self.stimuli:
-            stim_start = stimulus["start"]
-            stim_end = stim_start + stimulus["duration"]
-            if start <= stim_start <= end or start <= stim_end <= end:
-                return True
-        return False
 
-    def stimulus_at_t(self, t):
-        stimulated = np.zeros(self.states.shape)
-        for stimulus in self.stimuli:
-            active = t >= stimulus["start"]
-            active &= ((stimulus["start"] - t + 1) % stimulus["period"]) < stimulus["duration"]
-            stimulated = torch.where(stimulus["field"] * (active) > 0, stimulus["field"], stimulated)
-        return stimulated
-
-
-def MnistDataset():
-    _DATA = "/tmp/jax_example_data/"
-    """Download and parse the raw MNIST dataset."""
-    # CVDF mirror of http://yann.lecun.com/exdb/mnist/
-    base_url = "https://storage.googleapis.com/cvdf-datasets/mnist/"
-
-    def _download(url, filename):
-        """Download a url to a file in the JAX data temp directory."""
-        if not path.exists(_DATA):
-            os.makedirs(_DATA)
-        out_file = path.join(_DATA, filename)
-        if not path.isfile(out_file):
-            urllib.request.urlretrieve(url, out_file)
-            print("downloaded {} to {}".format(url, _DATA))
-
-    def parse_labels(filename):
-        with gzip.open(filename, "rb") as fh:
-            _ = struct.unpack(">II", fh.read(8))
-            return jnp.array(array.array("B", fh.read()), dtype=jnp.uint8)
-
-    def parse_images(filename):
-        with gzip.open(filename, "rb") as fh:
-            _, num_data, rows, cols = struct.unpack(">IIII", fh.read(16))
-            return jnp.array(array.array("B", fh.read()), dtype=jnp.uint8).reshape(num_data, rows, cols)
-
-    for filename in ["train-images-idx3-ubyte.gz", "train-labels-idx1-ubyte.gz",
-                   "t10k-images-idx3-ubyte.gz", "t10k-labels-idx1-ubyte.gz"]:
-        _download(base_url + filename, filename)
-
-    train_images = parse_images(path.join(_DATA, "train-images-idx3-ubyte.gz"))
-    train_labels = parse_labels(path.join(_DATA, "train-labels-idx1-ubyte.gz"))
-    test_images = parse_images(path.join(_DATA, "t10k-images-idx3-ubyte.gz"))
-    test_labels = parse_labels(path.join(_DATA, "t10k-labels-idx1-ubyte.gz"))
-
-    return train_images, train_labels, test_images, test_labels
+def imresize(image, size, method):
+    shape = (*image.shape[:-2], *size)
+    return jax.image.resize(image, shape, method)

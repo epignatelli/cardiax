@@ -20,6 +20,8 @@ def plot_state(state, **kwargs):
     cmap = kwargs.pop("cmap", "RdBu")
 
     for i in range(len(ax)):
+        if array[i] is None:
+            continue
         im = ax[i].imshow(array[i], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
         plt.colorbar(im, ax=ax[i])
         ax[i].set_title(state._fields[i])
@@ -40,6 +42,8 @@ def plot_states(states, **kwargs):
     for t, state in enumerate(states):
         array = tuple(state)
         for i in range(len(ax[t])):
+            if array[i] is None:
+                continue
             im = ax[t, i].imshow(array[i], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
             plt.colorbar(im, ax=ax[t, i])
             ax[t, i].set_title(state._fields[i])
@@ -61,6 +65,8 @@ def compare_states(states_a, states_b, **kwargs):
         state_a, state_b = states_a[t], states_b[t]
         a, b = tuple(states_a[t]), tuple(states_b[t])
         for i in range(0, len(ax), 2):
+            if a[i] is None or b[i] is None:
+                continue
             im = ax[t, i].imshow(a[i], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
             ax[t, i].set_title(state_a._fields[i])
             ax[t, i].xaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.1f}'.format(y / 100)))
