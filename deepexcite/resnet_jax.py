@@ -30,7 +30,7 @@ def ResidualBlock(out_channels, kernel_size, stride, padding, input_format):
         GeneralConv(input_format, out_channels, kernel_size, stride, padding),
     )
     return Module(
-        *stax.serial(FanOut(2), stax.parallel(double_conv, Identity), FanInSum, Elu)
+        *stax.serial(FanOut(2), stax.parallel(double_conv, Identity), FanInSum)
     )
 
 
@@ -122,6 +122,7 @@ def validation_step(model, params, refeed, x, y):
     u_t1 = x
     y_hat_stacked = []
     for t in range(refeed):
+        # evaluate state
         u_t2 = y[:, t][:, None, :, :, :]
         j, y_hat = forward(model, params, u_t1, u_t2)
         # update state
@@ -185,9 +186,17 @@ def main(hparams):
         keys=hparams.train_search_regex,
         preload=hparams.preload,
     )
+    val_set = ConcatSequence(
+        root=hparams.root,
+        frames_in=hparams.frames_in,
+        frames_out=hparams.evaluation_steps,
+        step=hparams.step,
+        transform=partial(imresize, size=hparams.size, method="bilinear"),
+        keys=hparams.val_search_regex,
+        preload=hparams.preload,
+    )
     train_dataloader = DataStream(train_set, hparams.batch_size, jnp.stack, hparams.seed)
-    val_dataloader = DataStream(train_set, hparams.batch_size, jnp.stack)
-    val_dataloader.frames_out = hparams.evaluation_steps
+    val_dataloader = DataStream(val_set, hparams.batch_size, jnp.stack)
 
     # init model parameters
     rng = jax.random.PRNGKey(hparams.seed)
@@ -207,7 +216,6 @@ def main(hparams):
         _, params = resnet.init(rng, in_shape)
 
     # init optimiser
-    # lr_scheduler = optimizers.exponential_decay(hparams.lr, n_train_batches * 40, 10)
     optimiser = optimizers.adam(hparams.lr)
     optimiser_state = optimiser.init_fn(params)
 
@@ -221,20 +229,19 @@ def main(hparams):
             x, y = batch[:, : hparams.frames_in], batch[:, hparams.frames_in :]
             # learning
             j_train, y_hat_stacked, optimiser_state = training_step_fast(
-                resnet, optimiser, train_dataloader.frames_out, train_iteration, optimiser_state, x, y
+                resnet, optimiser, hparams.refeed, train_iteration, optimiser_state, x, y
             )
             train_loss += j_train
             # logging
             logging_step(
-                logger, train_loss, x, y_hat_stacked, y, train_iteration, hparams.log_frequency, "train"
+                logger, j_train, x, y_hat_stacked, y, train_iteration, hparams.log_frequency, "train"
             )
             # prepare next iteration
-            print("Epoch {}/{} - Training step {}/{} - Loss: {:.6f}\t\t\t".format(i, hparams.epochs, j, train_dataloader.n_batches, train_loss), end="\r")
+            print("Epoch {}/{} - Training step {}/{} - Loss: {:.6f}\t\t\t".format(i, hparams.epochs, j, train_dataloader.n_batches, j_train), end="\r")
             train_iteration = train_iteration + 1
-            if j == 10 and hparams.debug:
-                break
-        train_loss /= len(train_dataloader)
+            if j == 10 and hparams.debug: break
         # checkpoint model
+        train_loss /= len(train_dataloader)
         logger.checkpoint("resnet", optimiser.params_fn(optimiser_state), train_iteration, train_loss)
 
         ## VALIDATING
@@ -245,18 +252,17 @@ def main(hparams):
             # prepare data
             x, y = batch[:, : hparams.frames_in], batch[:, hparams.frames_in :]
             # learning
-            j_val, y_hat_stacked = validation_step(resnet, params, val_dataloader.frames_out, x, y)
+            j_val, y_hat_stacked = validation_step(resnet, params, hparams.evaluation_steps, x, y)
             val_loss += j_val
-            # logging
-            logging_step(
-                logger, j_val, x, y_hat_stacked, y, val_iteration, hparams.log_frequency, "val"
-            )
             # prepare next iteration
-            print("Epoch {}/{} - Evaluation step {}/{} - Loss: {:.6f}\t\t\t".format(i, hparams.epochs, j, val_dataloader.n_batches, val_loss), end="\r")
+            print("Epoch {}/{} - Evaluation step {}/{} - Loss: {:.6f}\t\t\t".format(i, hparams.epochs, j, val_dataloader.n_batches, j_val), end="\r")
             val_iteration = val_iteration + 1
-            if j == 10 and hparams.debug:
-                break
+            if j == 10 and hparams.debug: break
+        # logging
         val_loss /= len(val_dataloader)
+        logging_step(
+            logger, val_loss, x, y_hat_stacked, y, val_iteration, val_iteration, "val"
+        )
 
         ## SCHEDULED UPDATES
         if (i != 0) and (train_loss <= hparams.increase_at) and (hparams.refeed < 20):
