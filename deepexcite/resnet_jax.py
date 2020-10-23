@@ -34,24 +34,25 @@ def ResidualBlock(out_channels, kernel_size, stride, padding, input_format):
     )
 
 
+def AddLastItem():
+    init_fun = lambda rng, input_shape: (input_shape, ())
+    apply_fun = lambda params, inputs, **kwargs: inputs[0] + inputs[1][:, -1][:, None, ...]
+    return init_fun, apply_fun
+
+
 def ResNet(
     hidden_channels, out_channels, kernel_size, strides, padding, depth, input_format
 ):
+    residual = stax.serial(
+        GeneralConv(input_format, hidden_channels, kernel_size, strides, padding),
+        *[
+            ResidualBlock(hidden_channels, kernel_size, strides, padding, input_format)
+            for _ in range(depth)
+        ],
+        GeneralConv(input_format, out_channels, kernel_size, strides, padding)
+    )
     return Module(
-        *(
-            stax.serial(
-                GeneralConv(
-                    (input_format), hidden_channels, kernel_size, strides, padding
-                ),
-                *[
-                    ResidualBlock(
-                        hidden_channels, kernel_size, strides, padding, input_format
-                    )
-                    for _ in range(depth)
-                ],
-                GeneralConv(input_format, out_channels, kernel_size, strides, padding)
-            )
-        )
+        *stax.serial(FanOut(2), stax.parallel(residual, Identity), AddLastItem())
     )
 
 
@@ -65,7 +66,7 @@ def compute_loss(y_hat: jnp.ndarray, y: jnp.ndarray):
     grad_loss_2 = jnp.mean((grad_y_hat_2 - grad_y_2) ** 2)  # mse
     grad_loss = grad_loss_1 + grad_loss_2
     recon_loss = jnp.mean((y_hat - y) ** 2)  # mse
-    return (grad_loss + recon_loss)
+    return grad_loss + recon_loss
 
 
 @partial(jax.jit, static_argnums=0)
@@ -109,10 +110,13 @@ def training_step_fast(model, optimiser, refeed, iteration, optimiser_state, x, 
     def fun(i, inputs):
         loss, x, optimiser_state = inputs
         u_t2 = y[:, i][:, None, :, :, :]
-        loss, y_hat, optimiser_state = update(model, optimiser, iteration, optimiser_state, x, u_t2)
+        loss, y_hat, optimiser_state = update(
+            model, optimiser, iteration, optimiser_state, x, u_t2
+        )
         u_t1 = jnp.concatenate([x[:, 1:], y_hat], axis=1)
         return (loss, u_t1, optimiser_state)
-    return jax.lax.fori_loop(0, refeed, fun, (0., x, optimiser_state))
+
+    return jax.lax.fori_loop(0, refeed, fun, (0.0, x, optimiser_state))
 
 
 @partial(jax.jit, static_argnums=(0, 2))
@@ -140,19 +144,21 @@ def logging_step(logger, loss, x, y_hat, y, step, frequency, prefix):
     logger.scalar("{}/loss".format(prefix), loss, step=step)
     # log input states
     x_states = [fk.model.State(*s.squeeze()) for s in x[0]]
-    fig, _ = fk.plot.plot_states(x_states, vmin=None, vmax=None, figsize=figsize)
+    fig, _ = fk.plot.plot_states(x_states, figsize=figsize)
     logger.figure("{}/x".format(prefix), fig, step)
     # log predictions as images
     y_hat_states = [fk.model.State(*s.squeeze()) for s in y_hat[0]]
-    fig, _ = fk.plot.plot_states(y_hat_states, vmin=None, vmax=None, figsize=figsize)
+    fig, _ = fk.plot.plot_states(y_hat_states, figsize=figsize)
     logger.figure("{}/y_hat".format(prefix), fig, step)
     # log truth
     y_states = [fk.model.State(*s.squeeze()) for s in y[0]]
-    fig, _ = fk.plot.plot_states(y_states, vmin=None, vmax=None, figsize=figsize)
+    fig, _ = fk.plot.plot_states(y_states, figsize=figsize)
     logger.figure("{}/y".format(prefix), fig, step)
     # log error
-    error_states = [fk.model.State(*s.squeeze()) for s in y_hat[0] - y[0, :y_hat.shape[1]]]
-    fig, _ = fk.plot.plot_states(error_states, vmin=None, vmax=None, figsize=figsize)
+    error_states = [
+        fk.model.State(*s.squeeze()) for s in y_hat[0] - y[0, : y_hat.shape[1]]
+    ]
+    fig, _ = fk.plot.plot_states(error_states, vmin=-1, vmax=1, figsize=figsize)
     logger.figure("{}/y_hat - y".format(prefix), fig, step)
     # force update
     logger.flush()
@@ -194,8 +200,11 @@ def main(hparams):
         transform=partial(imresize, size=hparams.size, method="bilinear"),
         keys=hparams.val_search_regex,
         preload=hparams.preload,
+        perc=hparams.val_perc,
     )
-    train_dataloader = DataStream(train_set, hparams.batch_size, jnp.stack, hparams.seed)
+    train_dataloader = DataStream(
+        train_set, hparams.batch_size, jnp.stack, hparams.seed
+    )
     val_dataloader = DataStream(val_set, hparams.batch_size, jnp.stack)
 
     # init model parameters
@@ -229,20 +238,41 @@ def main(hparams):
             x, y = batch[:, : hparams.frames_in], batch[:, hparams.frames_in :]
             # learning
             j_train, y_hat_stacked, optimiser_state = training_step_fast(
-                resnet, optimiser, hparams.refeed, train_iteration, optimiser_state, x, y
+                resnet,
+                optimiser,
+                hparams.refeed,
+                train_iteration,
+                optimiser_state,
+                x,
+                y,
             )
             train_loss += j_train
             # logging
             logging_step(
-                logger, j_train, x, y_hat_stacked, y, train_iteration, hparams.log_frequency, "train"
+                logger,
+                j_train,
+                x,
+                y_hat_stacked,
+                y,
+                train_iteration,
+                hparams.log_frequency,
+                "train",
             )
             # prepare next iteration
-            print("Epoch {}/{} - Training step {}/{} - Loss: {:.6f}\t\t\t".format(i, hparams.epochs, j, train_dataloader.n_batches, j_train), end="\r")
+            print(
+                "Epoch {}/{} - Training step {}/{} - Loss: {:.6f}\t\t\t".format(
+                    i, hparams.epochs, j, train_dataloader.n_batches, j_train
+                ),
+                end="\r",
+            )
             train_iteration = train_iteration + 1
-            if j == 10 and hparams.debug: break
+            if j == 10 and hparams.debug:
+                break
         # checkpoint model
         train_loss /= len(train_dataloader)
-        logger.checkpoint("resnet", optimiser.params_fn(optimiser_state), train_iteration, train_loss)
+        logger.checkpoint(
+            "resnet", optimiser.params_fn(optimiser_state), train_iteration, train_loss
+        )
 
         ## VALIDATING
         # we always validate on 20 times steps
@@ -252,12 +282,20 @@ def main(hparams):
             # prepare data
             x, y = batch[:, : hparams.frames_in], batch[:, hparams.frames_in :]
             # learning
-            j_val, y_hat_stacked = validation_step(resnet, params, hparams.evaluation_steps, x, y)
+            j_val, y_hat_stacked = validation_step(
+                resnet, params, hparams.evaluation_steps, x, y
+            )
             val_loss += j_val
             # prepare next iteration
-            print("Epoch {}/{} - Evaluation step {}/{} - Loss: {:.6f}\t\t\t".format(i, hparams.epochs, j, val_dataloader.n_batches, j_val), end="\r")
+            print(
+                "Epoch {}/{} - Evaluation step {}/{} - Loss: {:.6f}\t\t\t".format(
+                    i, hparams.epochs, j, val_dataloader.n_batches, j_val
+                ),
+                end="\r",
+            )
             val_iteration = val_iteration + 1
-            if j == 10 and hparams.debug: break
+            if j == 10 and hparams.debug:
+                break
         # logging
         val_loss /= len(val_dataloader)
         logging_step(
@@ -271,7 +309,9 @@ def main(hparams):
             assert hparams.refeed == train_dataloader.frames_out
             logger.scalar("refeed", hparams.refeed, train_iteration)
             logging.info(
-                "Increasing the amount of output frames to {} \t\t".format(hparams.refeed)
+                "Increasing the amount of output frames to {} \t\t".format(
+                    hparams.refeed
+                )
             )
         # resetting flow
         train_dataloader.reset()
@@ -282,6 +322,7 @@ def main(hparams):
 
 if __name__ == "__main__":
     from argparse import ArgumentParser
+
     parser = ArgumentParser()
     # model args
     parser.add_argument("--batch_size", type=int, default=4)
@@ -302,10 +343,11 @@ if __name__ == "__main__":
     parser.add_argument("--refeed", type=int, default=5)
     parser.add_argument("--input_format", type=str, default="NCDWH")
     parser.add_argument("--evaluation_steps", type=int, default=20)
+    parser.add_argument("--val_perc", type=float, default=0.2)
     # optim
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--increase_at", type=float, default=0.)
+    parser.add_argument("--increase_at", type=float, default=0.0)
     # loader args
     parser.add_argument("--preload", action="store_true", default=False)
     parser.add_argument(
