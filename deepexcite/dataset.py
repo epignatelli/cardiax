@@ -58,12 +58,13 @@ class DataStream():
 class ConcatSequence():
     def __init__(self,
                  root,
-                 frames_in=5,
-                 frames_out=10,
-                 step=1,
+                 frames_in=2,
+                 frames_out=5,
+                 step=5,
                  keys=None,
                  transform=None,
-                 preload=False):
+                 preload=False,
+                 perc=1.):
         # public:
         self.root = root
 
@@ -79,12 +80,17 @@ class ConcatSequence():
         if len(filenames) == 0:
             raise FileNotFoundError("No datasets found that match regex {} in {}".format(keys, root))
 
-        self.datasets = [HDF5Sequence(filename=filename,
-                                      frames_in=frames_in,
-                                      frames_out=frames_out,
-                                      step=step,
-                                      transform=transform,
-                                      preload=preload) for filename in filenames]
+        self.datasets = [HDF5Sequence(
+                filename=filename,
+                frames_in=frames_in,
+                frames_out=frames_out,
+                step=step,
+                transform=transform,
+                preload=preload,
+                perc=perc,
+                )
+            for filename in filenames
+        ]
         return
 
     def __len__(self):
@@ -133,7 +139,8 @@ class HDF5Sequence():
                  frames_out=0,
                  step=1,
                  transform=None,
-                 preload=False):
+                 preload=False,
+                 perc=1.):
         # public:
         self.frames_in = frames_in
         self.frames_out = frames_out
@@ -143,6 +150,7 @@ class HDF5Sequence():
         self.preload = preload
         # private:
         self._is_open = False
+        self._perc = perc
 
         self.states = None
         self.stimuli = None
@@ -166,7 +174,7 @@ class HDF5Sequence():
         return states
 
     def __len__(self):
-        return 5000 - (self.frames_in + 20) * self.step  # hacky, this sucks - TODO(epignatelli)
+        return int((5000 - (self.frames_in + 20) * self.step) * self._perc)  # hacky, this sucks - TODO(epignatelli)
 
     def open(self):
         file = h5py.File(self.filename, "r")
