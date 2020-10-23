@@ -271,7 +271,7 @@ def main(hparams):
         # checkpoint model
         train_loss /= len(train_dataloader)
         logger.checkpoint(
-            "resnet", optimiser.params_fn(optimiser_state), train_iteration, train_loss
+            "resnet", optimiser_state, train_iteration, train_loss
         )
 
         ## VALIDATING
@@ -309,7 +309,7 @@ def main(hparams):
             assert hparams.refeed == train_dataloader.frames_out
             logger.scalar("refeed", hparams.refeed, train_iteration)
             logging.info(
-                "Increasing the amount of output frames to {} \t\t".format(
+                "Increasing the amount of output frames to {} \t\t\t".format(
                     hparams.refeed
                 )
             )

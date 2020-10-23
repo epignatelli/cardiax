@@ -370,7 +370,7 @@ class SummaryWriter(object):
                         tag=tag, metadata=smd, tensor=tensor)])
         self.add_summary(summary, step)
 
-    def checkpoint(self, tag, params, step, loss=None):
+    def checkpoint(self, tag, optimiser_state, step, loss=None):
         """Saves a copy of the model parameters using pickle
 
         Args:
@@ -380,21 +380,20 @@ class SummaryWriter(object):
             monitor: metric to evaluate the performance of the model
             best_only: if True, models with a lower performance will not be saved
         """
-        filename_last = str(tag) + "_last"
         parent = os.path.join(self.log_dir, "checkpoints")
         os.makedirs(parent, exist_ok=True)
-        if loss is not None:
-            filename_last += "_L{:.6f}".format(loss)
-        filepath_last = os.path.join(parent, filename_last + ".pickle")
+
+        filepath_last = os.path.join(parent, str(tag) + "_last.pickle")
         with open(filepath_last, "wb") as f:
-            pickle.dump(params, f)
+            pickle.dump(optimiser_state, f)
+
         if loss is None or loss > self._best_loss:
             return
         self._best_loss = loss
-        filename_best = str(tag) + "best" + "_L{:.6f}".format(loss)
-        filepath_best = os.path.join(parent, filename_best + ".pickle")
+        filepath_best = os.path.join(parent, str(tag) + "_best.pickle")
         with open(filepath_best, "wb") as f:
-            pickle.dump(params, f)
+            pickle.dump(optimiser_state, f)
+        return True
 
 
 # Copied from gin/tf/utils.py:GinConfigSaverHook
