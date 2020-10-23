@@ -108,12 +108,12 @@ def training_step(model, optimiser, refeed, iteration, optimiser_state, x, y):
 @partial(jax.jit, static_argnums=(0, 1, 2))
 def training_step_fast(model, optimiser, refeed, iteration, optimiser_state, x, y):
     def fun(i, inputs):
-        loss, x, optimiser_state = inputs
+        loss, u_t1, optimiser_state = inputs
         u_t2 = y[:, i][:, None, :, :, :]
         loss, y_hat, optimiser_state = update(
-            model, optimiser, iteration, optimiser_state, x, u_t2
+            model, optimiser, iteration, optimiser_state, u_t1, u_t2
         )
-        u_t1 = jnp.concatenate([x[:, 1:], y_hat], axis=1)
+        u_t1 = jnp.concatenate([u_t1[:, 1:], y_hat], axis=1)
         return (loss, u_t1, optimiser_state)
 
     return jax.lax.fori_loop(0, refeed, fun, (0.0, x, optimiser_state))
