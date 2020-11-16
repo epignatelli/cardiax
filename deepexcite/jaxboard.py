@@ -34,15 +34,16 @@ with warnings.catch_warnings():
     warnings.simplefilter('ignore')
     # mpl.use('Agg')
 # pylint: disable=g-import-not-at-top
+import pickle
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
+import jax
 
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.core.util import event_pb2
 from tensorflow.python.summary.writer.event_file_writer import EventFileWriter
 # pylint: enable=g-direct-tensorflow-import
-import pickle
 
 
 def _pack_images(images, rows, cols):
@@ -382,6 +383,9 @@ class SummaryWriter(object):
         """
         parent = os.path.join(self.log_dir, "checkpoints")
         os.makedirs(parent, exist_ok=True)
+
+        if not isinstance(optimiser_state, jax.experimental.optimizers.JoinPoint):
+            optimiser_state = jax.experimental.optimizers.unpack_optimizer_state(optimiser_state)
 
         filepath_last = os.path.join(parent, str(tag) + "_last.pickle")
         with open(filepath_last, "wb") as f:

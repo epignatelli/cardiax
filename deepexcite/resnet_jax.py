@@ -34,9 +34,11 @@ def ResidualBlock(out_channels, kernel_size, stride, padding, input_format):
     )
 
 
-def AddLastItem():
+def AddLastItem(axis):
     init_fun = lambda rng, input_shape: (input_shape, ())
-    apply_fun = lambda params, inputs, **kwargs: inputs[0] + inputs[1][:, -1][:, None, ...]
+    apply_fun = lambda params, inputs, **kwargs: inputs[0] + jax.lax.slice_in_dim(
+        inputs[1], inputs[1].shape[axis] - 1, inputs[1].shape[axis], axis=axis
+        )
     return init_fun, apply_fun
 
 
@@ -52,7 +54,7 @@ def ResNet(
         GeneralConv(input_format, out_channels, kernel_size, strides, padding)
     )
     return Module(
-        *stax.serial(FanOut(2), stax.parallel(residual, Identity), AddLastItem())
+        *stax.serial(FanOut(2), stax.parallel(residual, Identity), AddLastItem(1))
     )
 
 
@@ -139,26 +141,29 @@ def validation_step(model, params, refeed, x, y):
 def logging_step(logger, loss, x, y_hat, y, step, frequency, prefix):
     if step % frequency:
         return
-    figsize = (15, 2.5 * y_hat.shape[1])
+    logging.debug(x.shape)
+    logging.debug(y_hat.shape)
+    logging.debug(y.shape)
     # log loss
     logger.scalar("{}/loss".format(prefix), loss, step=step)
     # log input states
     x_states = [fk.model.State(*s.squeeze()) for s in x[0]]
-    fig, _ = fk.plot.plot_states(x_states, figsize=figsize)
+    fig, _ = fk.plot.plot_states(x_states, figsize=(15, 2.5 * x.shape[1]))
     logger.figure("{}/x".format(prefix), fig, step)
     # log predictions as images
     y_hat_states = [fk.model.State(*s.squeeze()) for s in y_hat[0]]
-    fig, _ = fk.plot.plot_states(y_hat_states, figsize=figsize)
+    fig, _ = fk.plot.plot_states(y_hat_states, figsize=(15, 2.5 * y_hat.shape[1]))
     logger.figure("{}/y_hat".format(prefix), fig, step)
     # log truth
     y_states = [fk.model.State(*s.squeeze()) for s in y[0]]
-    fig, _ = fk.plot.plot_states(y_states, figsize=figsize)
+    fig, _ = fk.plot.plot_states(y_states, figsize=(15, 2.5 * y.shape[1]))
     logger.figure("{}/y".format(prefix), fig, step)
     # log error
+    min_time = min(y.shape[1], y_hat.shape[1])
     error_states = [
-        fk.model.State(*s.squeeze()) for s in y_hat[0] - y[0, : y_hat.shape[1]]
+        fk.model.State(*s.squeeze()) for s in y_hat[0, :min_time] - y[0, :min_time]
     ]
-    fig, _ = fk.plot.plot_states(error_states, vmin=-1, vmax=1, figsize=figsize)
+    fig, _ = fk.plot.plot_states(error_states, vmin=-1, vmax=1, figsize=(15, 2.5 * y_hat.shape[1]))
     logger.figure("{}/y_hat - y".format(prefix), fig, step)
     # force update
     logger.flush()
@@ -234,6 +239,7 @@ def main(hparams):
         ## TRAINING
         train_loss = 0.0
         for j, batch in enumerate(train_dataloader):
+            logging.debug(batch.shape)
             # prepare data
             x, y = batch[:, : hparams.frames_in], batch[:, hparams.frames_in :]
             # learning
@@ -348,6 +354,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--increase_at", type=float, default=0.0)
+    parser.add_argument("--teacher_forcing_prob", type=float, default=0.0)
     # loader args
     parser.add_argument("--preload", action="store_true", default=False)
     parser.add_argument(
