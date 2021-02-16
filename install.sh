@@ -1,8 +1,2 @@
-# install jaxlib
-PYTHON_VERSION=cp38  # alternatives: cp36, cp37, cp38
-CUDA_VERSION=cuda102  # alternatives: cuda92, cuda100, cuda101, cuda102
-PLATFORM=manylinux2010_x86_64  # alternatives: linux_x86_64
-BASE_URL='https://storage.googleapis.com/jax-releases'
-pip install --upgrade $BASE_URL/$CUDA_VERSION/jaxlib-0.1.55-$PYTHON_VERSION-none-$PLATFORM.whl
-
-pip install jax  # install jax
+CUDA_VERSION=102  # cuda112 for CUDA 11.2, cuda111 for CUDA 11.1, cuda110 for CUDA 11.0, cuda102 for CUDA 10.2, and cuda101
+pip install --upgrade jax jaxlib==0.1.61+cuda$CUDA_VERSION -f https://storage.googleapis.com/jax-releases/jax_releases.html/
