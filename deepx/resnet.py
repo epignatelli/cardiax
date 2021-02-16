@@ -38,7 +38,7 @@ def AddLastItem(axis):
     init_fun = lambda rng, input_shape: (input_shape, ())
     apply_fun = lambda params, inputs, **kwargs: inputs[0] + jax.lax.slice_in_dim(
         inputs[1], inputs[1].shape[axis] - 1, inputs[1].shape[axis], axis=axis
-        )
+    )
     return init_fun, apply_fun
 
 
@@ -163,7 +163,9 @@ def logging_step(logger, loss, x, y_hat, y, step, frequency, prefix):
     error_states = [
         fk.model.State(*s.squeeze()) for s in y_hat[0, :min_time] - y[0, :min_time]
     ]
-    fig, _ = fk.plot.plot_states(error_states, vmin=-1, vmax=1, figsize=(15, 2.5 * y_hat.shape[1]))
+    fig, _ = fk.plot.plot_states(
+        error_states, vmin=-1, vmax=1, figsize=(15, 2.5 * y_hat.shape[1])
+    )
     logger.figure("{}/y_hat - y".format(prefix), fig, step)
     # force update
     logger.flush()
@@ -276,9 +278,7 @@ def main(hparams):
                 break
         # checkpoint model
         train_loss /= len(train_dataloader)
-        logger.checkpoint(
-            "resnet", optimiser_state, train_iteration, train_loss
-        )
+        logger.checkpoint("resnet", optimiser_state, train_iteration, train_loss)
 
         ## VALIDATING
         # we always validate on 20 times steps

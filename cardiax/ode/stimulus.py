@@ -1,9 +1,13 @@
-from typing import NamedTuple
+import random
+from typing import NamedTuple, Tuple
+from enum import IntEnum
+
 import jax
 import jax.numpy as np
 from scipy.ndimage.interpolation import rotate
-import random
-from . import convert
+
+Shape = Tuple[int, ...]
+Point2D = Tuple[int, int]
 
 
 class Protocol(NamedTuple):
@@ -17,7 +21,20 @@ class Stimulus(NamedTuple):
     field: np.ndarray
 
 
-def rectangular(shape, centre, size, modulus, protocol):
+class Direction(IntEnum):
+    NORTH = 0
+    EAST = 1
+    SOUTH = 2
+    WEST = 3
+
+
+def rectangular(
+    shape: Shape,
+    centre: Point2D,
+    size: Point2D,
+    modulus: float,
+    protocol: Protocol,
+):
     """
     Generates a rectangular stimulus given the center and the dimension of the rectangle.
     Args:
@@ -35,15 +52,21 @@ def rectangular(shape, centre, size, modulus, protocol):
                              "period": (int)
     """
     mask = np.zeros(shape, dtype="float32")
-    x1 = (int(centre[0] - size[0] / 2))
-    x2 = (int(centre[0] + size[0] / 2))
-    y1 = (int(centre[1] - size[1] / 2))
-    y2 = (int(centre[1] + size[1] / 2))
+    x1 = int(centre[0] - size[0] / 2)
+    x2 = int(centre[0] + size[0] / 2)
+    y1 = int(centre[1] - size[1] / 2)
+    y2 = int(centre[1] + size[1] / 2)
     mask = jax.ops.index_update(mask, jax.ops.index[x1:x2, y1:y2], modulus)
     return Stimulus(protocol, mask)
 
 
-def linear(shape, direction, coverage, modulus, protocol):
+def linear(
+    shape: Shape,
+    direction: Direction,
+    coverage: float,
+    modulus: float,
+    protocol: Protocol,
+):
     """
     Generates a linear wave stimulus.
     Args:
@@ -65,23 +88,33 @@ def linear(shape, direction, coverage, modulus, protocol):
     direction = direction.lower()
     stripe_size = int(shape[0] * coverage)
     stripe = None
-    if direction == "left":
+    if direction == Direction.WEST:
         stripe = jax.ops.index[:, :stripe_size]
-    elif direction == "right":
+    elif direction == Direction.EAST:
         stripe = jax.ops.index[:, -stripe_size:]
-    elif direction == "up":
+    elif direction == Direction.NORTH:
         stripe = jax.ops.index[:stripe_size, :]
-    elif direction == "down":
+    elif direction == Direction.SOUTH:
         stripe = jax.ops.index[-stripe_size:, :]
     else:
-        raise ValueError("direction mus be either 'left', 'right', 'up', or 'down' not %s" % direction)
+        raise ValueError(
+            "direction mus be either 'left', 'right', 'up', or 'down' not %s"
+            % direction
+        )
 
     field = np.zeros(shape, dtype="float32")
     field = jax.ops.index_update(field, stripe, modulus)
     return Stimulus(protocol, field)
 
 
-def triangular(shape, direction, angle, coverage, modulus, protocol):
+def triangular(
+    shape: Shape,
+    direction: float,
+    angle: float,
+    coverage: float,
+    modulus: float,
+    protocol: Protocol,
+):
     """
     Generates a linear wave at a custom angle.
     Args:
@@ -102,5 +135,7 @@ def triangular(shape, direction, angle, coverage, modulus, protocol):
                              "period": (int)
     """
     stim = linear(shape, direction, coverage, modulus, protocol)
-    field = rotate(stim.field, angle=angle, mode="nearest", prefilter=False, reshape=False)
+    field = rotate(
+        stim.field, angle=angle, mode="nearest", prefilter=False, reshape=False
+    )
     return Stimulus(protocol, field)

@@ -2,21 +2,23 @@ import h5py
 import jax
 import jax.numpy as np
 from .params import Params
-from .stimulus import Protocol,Stimulus
+from ..ode.stimulus import Protocol, Stimulus
 
 
 def init(path, shape, n_iter, n_stimuli, n_variables=5):
     hdf5 = h5py.File(path, "w")
     if "states" not in hdf5:
         # shape is (t, n_variables, w, h)
-        dset_states = hdf5.create_dataset("states", shape=(n_iter, n_variables, *shape), dtype="float32")
+        hdf5.create_dataset(
+            "states", shape=(n_iter, n_variables, *shape), dtype="float32"
+        )
     if "stimuli" not in hdf5:
-        dset_stim = hdf5.create_dataset("stimuli", shape=(n_stimuli, *shape), dtype="float32")
+        hdf5.create_dataset("stimuli", shape=(n_stimuli, *shape), dtype="float32")
     return hdf5
 
 
 def add_params(hdf5, params, diffusivity, dt, dx, shape=None):
-    #reshape
+    # reshape
     if shape is not None:
         diffusivity = imresize(diffusivity, shape)
     # store
@@ -36,9 +38,15 @@ def add_stimuli(hdf5, stimuli, shape=None):
         fields = [stimuli[i].field for i in range(len(stimuli))]
     hdf5.create_dataset("field", data=fields)
     # store
-    hdf5.create_dataset("start", data=[stimuli[i].protocol.start for i in range(len(stimuli))])
-    hdf5.create_dataset("duration", data=[stimuli[i].protocol.duration for i in range(len(stimuli))])
-    hdf5.create_dataset("period", data=[stimuli[i].protocol.period for i in range(len(stimuli))])
+    hdf5.create_dataset(
+        "start", data=[stimuli[i].protocol.start for i in range(len(stimuli))]
+    )
+    hdf5.create_dataset(
+        "duration", data=[stimuli[i].protocol.duration for i in range(len(stimuli))]
+    )
+    hdf5.create_dataset(
+        "period", data=[stimuli[i].protocol.period for i in range(len(stimuli))]
+    )
     return True
 
 
@@ -48,6 +56,7 @@ def add_state(dset, state, t, shape=None):
         state = imresize(array, shape)
     dset[t] = state
     return True
+
 
 def append_states(dset, states, start, end):
     # shape is (t, 3, w, h), where 3 is the tree fk variable
@@ -92,5 +101,9 @@ def imresize(a, size):
     Args:
         a (np.ndarray): 2D or 3D array
     """
-    assert len(size) == len(a.shape), "The length of the target size must match the number of dimensions in a, got {} and {}".format(a.shape, size)
+    assert len(size) == len(
+        a.shape
+    ), "The length of the target size must match the number of dimensions in a, got {} and {}".format(
+        a.shape, size
+    )
     return jax.image.resize(a, size, "bilinear")
