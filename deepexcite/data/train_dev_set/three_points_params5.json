@@ -1,0 +1,50 @@
+{
+    "field_size": [12, 12],
+    "d": 0.001,
+    "params": "params5",
+    "dt": 0.01,
+    "dx": 0.01,
+    "start": 0,
+    "stop": 20000,
+    "stimuli": [
+    {
+        "type": "rectangular",
+        "shape": [1200, 1200],
+        "centre": [200, 200],
+        "size": [100, 100],
+        "modulus": 0.8,
+        "protocol": 
+        {
+            "start": 0,
+            "duration": 2,
+            "period": null
+        }
+    },
+    {
+        "type": "rectangular",
+        "shape": [1200, 1200],
+        "centre": [500, 500],
+        "size": [100, 100],
+        "modulus": 0.8,
+        "protocol": 
+        {
+            "start": 44500,
+            "duration": 2,
+            "period": null
+        }
+    },
+    {
+        "type": "rectangular",
+        "shape": [1200, 1200],
+        "centre": [750, 250],
+        "size": [100, 100],
+        "modulus": 0.8,
+        "protocol": 
+        {
+            "start": 49500,
+            "duration": 2,
+            "period": null
+        }
+    }        
+    ]
+}

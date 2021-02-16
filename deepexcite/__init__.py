@@ -1,2 +1,5 @@
+from . import data
 from . import dataset
-from . import model
+from . import jaxboard
+from . import plot
+from . import utils
