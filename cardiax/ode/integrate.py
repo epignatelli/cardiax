@@ -5,17 +5,12 @@ import jax
 import jax.numpy as jnp
 
 
-@functools.partial(jax.jit, static_argnums=(0,))
 def euler(
     f: Callable, x: jnp.ndarray, t: float, *f_args: Any, **integrator_kwargs: Any
 ):
     dt = integrator_kwargs.pop("dt")
-    return jax.numpy.add(x, f(x, t, *f_args) * dt)
-
-    # def apply(x):
-    #     return jax.numpy.add(x, f(x) * dt)
-
-    # return jax.tree_multimap(apply, x, dt)
+    grads = f(x, t, *f_args)
+    return jax.tree_multimap(lambda v, dv: jnp.add(v, dv * dt), x, grads)
 
 
 @functools.partial(jax.jit, static_argnums=(0,))

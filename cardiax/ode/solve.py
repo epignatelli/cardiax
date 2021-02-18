@@ -5,8 +5,9 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
-from . import integrate, plot
+from . import integrate
 from .conditions import Boundary
+from .plot import plot_state
 from .stimulus import Stimulus
 
 Params = NamedTuple  # physical parameters of the equation
@@ -22,6 +23,7 @@ def forward(
     stimuli: Sequence[Stimulus],
     dt: float,
     dx: float,
+    plot=True,
 ):
 
     x = x0
@@ -48,9 +50,10 @@ def forward(
             dt,
             dx,
         )
-        plot.plot_state(x)
-        plt.show()
         states.append(x)
+        if plot:
+            plot_state(x)
+            plt.show()
     return states
 
 
@@ -77,6 +80,7 @@ def _forward(
             diffusivity,
             stimuli,
             dx,
+            dt=dt,
         )
 
     return jax.lax.fori_loop(t, t_end, body_fn, init_val=x)

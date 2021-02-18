@@ -53,14 +53,14 @@ def random_triangular_stimulus(
     return stimulus.triangular(shape, direction, angle, coverage, modulus, protocol)
 
 
-def random_stimulus(rng: Key, shape: Shape) -> stimulus.Stimulus:
+def random_stimulus(rng: Key, shape: Shape, maxstart: int = 0) -> stimulus.Stimulus:
     stimuli_fn = (
         random_rectangular_stimulus,
         random_triangular_stimulus,
         random_linear_stimulus,
     )
     rng_1, rng_2, rng_3, rng_4 = jax.random.split(rng, 4)
-    protocol = random_protocol(rng_1)
+    protocol = random_protocol(rng_1, maxstart)
     modulus = jax.random.normal(rng_2, (1,)) + 0.5 / 1.5
     stimulus_fn = partial(
         stimuli_fn[jax.random.choice(rng_3, jnp.arange(0, len(stimuli_fn)))],
@@ -112,7 +112,8 @@ def random_sequence(
 ):
     # generate random stimuli
     rngs = jax.random.split(rng, n_stimuli)
-    stimuli = [random_stimulus(rngs[i], shape) for i in range(n_stimuli)]
+    maxstarts = [1, 300, 500]
+    stimuli = [random_stimulus(rngs[i], shape, maxstarts[i]) for i in range(n_stimuli)]
 
     # generate diffusivity map
     diffusivity = random_diffusivity(rngs[-1], shape, n_scars)
@@ -187,7 +188,7 @@ def sequence(
             ),
             end="\r",
         )
-        state = ode.forward._forward(
+        state = ode.solve._forward(
             fk.solve.step,
             state,
             checkpoints[i],

@@ -32,7 +32,7 @@ def step(
     diffusivity: jnp.ndarray,
     stimuli: Sequence[Stimulus],
     dx: float,
-):
+) -> State:
     """
     Solves the gradients of the fenton karma equation
     """
@@ -68,7 +68,7 @@ def step(
     d_u = del_u + j_ion
 
     # restore from boundary manipultions
-    grads = (d_v, d_w, d_u)
+    grads = State(d_v, d_w, d_u)
     grads = boundaries_conditions.restore(grads)
     return grads
 

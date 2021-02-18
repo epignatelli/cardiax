@@ -38,8 +38,8 @@ def test_fk_forward():
     diffusivity = generate.random_diffusivity(rng, shape, 3)
     stimuli = [generate.random_stimulus(rng, shape)]
     dx = 0.01
-
     dt = 0.01
+
     # test
     ode.forward.forward(
         fk.solve.step,
@@ -51,10 +51,11 @@ def test_fk_forward():
         stimuli,
         dt,
         dx,
+        plot=False,
     )
     return
 
 
 if __name__ == "__main__":
-    # test_fk_step()
+    test_fk_step()
     test_fk_forward()
