@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Tuple
+from typing import Tuple, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -97,18 +97,18 @@ def random_diffusivity(rng: Key, shape: Shape, n_gaussians: int = 3) -> jnp.ndar
 
 
 def random_sequence(
-    rng,
-    cell_parameters,
-    name,
-    shape=(1200, 1200),
-    n_stimuli=3,
-    n_scars=3,
-    start=0,
-    stop=1000,
-    dt=0.01,
-    dx=0.01,
-    reshape=(256, 256),
-    save_interval_ms=1,
+    rng: Key,
+    cell_parameters: fk.params.Params,
+    filepath: str,
+    shape: Sequence[int] = (1200, 1200),
+    n_stimuli: int = 3,
+    n_scars: int = 3,
+    start: int = 0,
+    stop: int = 1000,
+    dt: float = 0.01,
+    dx: float = 0.01,
+    reshape: Sequence[int] = (256, 256),
+    save_interval_ms: int = 1,
 ):
     # generate random stimuli
     rngs = jax.random.split(rng, n_stimuli)
@@ -127,7 +127,7 @@ def random_sequence(
         cell_parameters=cell_parameters,
         diffusivity=diffusivity,
         stimuli=stimuli,
-        filename=name,
+        filename=filepath,
     )
 
 
@@ -144,29 +144,11 @@ def sequence(
     reshape=None,
     save_interval_ms=1,
 ):
-    """
-    Generates a new spatio-temporal sequence of fenton-karma simulations.
-    Args:
-        start (float): start time of the simulation in millisecons
-        stop (float): end time of the simulation in milliseconds
-        dt (float): time infinitesimal for temporal gradients calculation (nondimensional)
-        dx (float): space infinitesimal for spatial gradients calculation (nondimensional)
-        cell_parameters (Dict[string, float]): set of electrophysiological parameters to use for the simulation
-                                             Units are cm for space, ms for time, mV for potential difference, uF for capacitance
-        diffusivity (np.ndarray): diffusivity map for tissue conduction velocity. Spatial units are in simulation units,
-                                  and the value is the dimensional value, usually set to 0.001 cm^2/ms
-        stimuli (List[Dict[string, object]]): The stimulus as a dictionary containing:
-                                              "field": (np.ndarray) [mV/unitgrid],
-                                              "start": (int) [ms],
-                                              "duration": (int) [ms],
-                                              "period": (int) [ms]
-        filename (str): file path to save the simulation to. Simulation is saved with steps of 1ms
-    """
     # check shapes
     for s in stimuli:
         assert (
             diffusivity.shape == s.field.shape
-        ), "Inconsistend stimulus shapes {} and diffusivity {}".format(
+        ), "Inconsistent stimulus shapes {} and diffusivity {}".format(
             diffusivity.shape, s.field.shape
         )
 
@@ -207,7 +189,6 @@ def sequence(
         )
         state = ode.forward._forward(
             fk.solve.step,
-            ode.integrate.euler,
             state,
             checkpoints[i],
             checkpoints[i + 1],

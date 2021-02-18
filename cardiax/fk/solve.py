@@ -31,7 +31,6 @@ def step(
     params: Params,
     diffusivity: jnp.ndarray,
     stimuli: Sequence[Stimulus],
-    dt: float,
     dx: float,
 ):
     """
@@ -41,7 +40,8 @@ def step(
     state = state._replace(u=stimulate(time, state.u, stimuli))
 
     # neumann boundary conditions
-    state, diffusivity = boundaries_conditions.apply((state, diffusivity))
+    state = boundaries_conditions.apply(state)
+    diffusivity = boundaries_conditions.apply(diffusivity)
     v, w, u = state
 
     # reaction term
@@ -68,7 +68,8 @@ def step(
     d_u = del_u + j_ion
 
     # restore from boundary manipultions
-    grads = boundaries_conditions.restore(d_v, d_w, d_u)
+    grads = (d_v, d_w, d_u)
+    grads = boundaries_conditions.restore(grads)
     return grads
 
 

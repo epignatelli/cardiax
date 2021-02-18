@@ -5,7 +5,8 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
-from . import plot
+from . import integrate, plot
+from .conditions import Boundary
 from .stimulus import Stimulus
 
 Params = NamedTuple  # physical parameters of the equation
@@ -13,16 +14,16 @@ Params = NamedTuple  # physical parameters of the equation
 
 def forward(
     step_fn: Callable,
-    integrator: Callable,
     x0: jnp.ndarray,
     t_checkpoints: Sequence[int],
-    boundary_conditions,
+    boundary_conditions: Boundary,
     physical_parameters: Params,
     diffusivity: jnp.ndarray,
     stimuli: Sequence[Stimulus],
     dt: float,
     dx: float,
 ):
+
     x = x0
     states = []
     for i in range(len(t_checkpoints) - 1):
@@ -37,13 +38,12 @@ def forward(
         )
         x = _forward(
             step_fn,
-            integrator,
             x,
             t_checkpoints[i],
             t_checkpoints[i + 1],
             boundary_conditions,
             physical_parameters,
-            jnp.ones_like(x) * diffusivity,
+            diffusivity,
             stimuli,
             dt,
             dx,
@@ -54,54 +54,29 @@ def forward(
     return states
 
 
-@functools.partial(jax.jit, static_argnums=(0, 1))
+# @functools.partial(jax.jit, static_argnums=(0, 4))
 def _forward(
-    step_fn,
-    integrator,
-    x,
-    t,
-    t_end,
-    boundary_conditions,
-    physical_parameters,
-    diffusivity,
-    stimuli,
-    dt,
-    dx,
+    step_fn: Callable,
+    x: jnp.ndarray,
+    t: int,
+    t_end: int,
+    boundary_conditions: Boundary,
+    physical_parameters: Params,
+    diffusivity: jnp.ndarray,
+    stimuli: Sequence[Stimulus],
+    dt: float,
+    dx: float,
 ):
-    def body_fn(i, x):
-        x = integrator(
+    def body_fn(t, x):
+        return integrate.euler(
             step_fn,
             x,
-            i,
+            t,
             boundary_conditions,
             physical_parameters,
             diffusivity,
             stimuli,
-            dt,
             dx,
         )
-        return x
 
     return jax.lax.fori_loop(t, t_end, body_fn, init_val=x)
-
-
-# @functools.partial(jax.jit, static_argnums=(0, 1))
-# def _forward_stack(
-#     step_fn,
-#     integrator,
-#     x,
-#     t,
-#     t_end,
-#     physical_parameters,
-#     diffusion,
-#     stimuli,
-#     dt,
-#     dx,
-# ):
-#     def body_fun(x, i):
-#         new_state = integrator(step_fn, x, i, physical_parameters, diffusion, stimuli, dt, dx)
-#         return (new_state, new_state)
-
-#     xs = jnp.arange(t, t_end)
-#     _, states = jax.lax.scan(body_fun, x, xs)
-#     return states

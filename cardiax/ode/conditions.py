@@ -9,11 +9,11 @@ class Boundary(NamedTuple):
     restore: Callable
 
 
-def neumann(x: jnp.ndarray, func: Callable, order: int = 3) -> jnp.ndarray:
+def neumann(order: int = 3) -> jnp.ndarray:
     def apply(x):
-        return jnp.pad(x, 2, mode="edge")
+        return jax.tree_map(lambda v: jnp.pad(v, 2, mode="edge"), x)
 
     def restore(x):
         return jax.tree_map(lambda v: v[1:-1], x)
 
-    return apply, restore
+    return Boundary(apply, restore)
