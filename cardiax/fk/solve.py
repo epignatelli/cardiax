@@ -17,28 +17,24 @@ class State(NamedTuple):
     u: jnp.ndarray
 
 
-@functools.partial(jax.jit, static_argnums=0)
 def init(shape):
     v = jnp.ones(shape)
     w = jnp.ones(shape)
     u = jnp.zeros(shape)
-    l = jnp.zeros(shape)
-    j = jnp.zeros(shape)
-    return State(v, w, u, l, j)
+    return State(v, w, u)
 
 
-@jax.jit
 def step(
     state: State,
-    boundaries_conditions: Callable,
     time: float,
+    boundaries_conditions: Callable,
     params: Params,
     diffusivity: jnp.ndarray,
     stimuli: Sequence[Stimulus],
     dt: float,
     dx: float,
 ):
-    """boundaries,
+    """
     Solves the gradients of the fenton karma equation
     """
     # apply stimulus
@@ -76,7 +72,6 @@ def step(
     return grads
 
 
-@jax.jit
 def stimulate(time, X, stimuli):
     stimulated = jnp.zeros_like(X)
     for stimulus in stimuli:

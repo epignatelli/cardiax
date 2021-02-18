@@ -11,3 +11,4 @@ pandas
 requests
 scikit-learn
 tqdm
+git+https://github.com/epignatelli/helx

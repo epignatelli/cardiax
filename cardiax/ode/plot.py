@@ -12,6 +12,16 @@ from matplotlib.ticker import FuncFormatter
 #     "font.sans-serif": ["Helvetica"]})
 
 
+def plot_diffusivity(diff, **kwargs):
+    fig, ax = plt.subplots(1, 1, figsize=(kwargs.pop("figsize", (25, 5))))
+    vmin = kwargs.pop("vmin", 0)
+    vmax = kwargs.pop("vmax", 1)
+    cmap = kwargs.pop("cmap", "gray")
+
+    ax.imshow(diff, vmin=vmin, vmax=vmax, cmap="gray")
+    return fig, ax
+
+
 def plot_state(state, **kwargs):
     array = tuple(state)
     fig, ax = plt.subplots(

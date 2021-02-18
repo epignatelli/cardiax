@@ -85,7 +85,6 @@ def linear(
                              "duration": (int),
                              "period": (int)
     """
-    direction = direction.lower()
     stripe_size = int(shape[0] * coverage)
     stripe = None
     if direction == Direction.WEST:
