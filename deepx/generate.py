@@ -92,8 +92,13 @@ def random_gaussian_mixture(rng: Key, shape: Shape, n_gaussians: int) -> jnp.nda
     return sum(mixture) / n_gaussians
 
 
-def random_diffusivity(rng: Key, shape: Shape, n_gaussians: int = 3) -> jnp.ndarray:
-    return random_gaussian_mixture(rng, shape, n_gaussians)
+def random_diffusivity(
+    rng: Key, shape: Shape, n_gaussians: int = 3, domain=(0.001, 0.003)
+) -> jnp.ndarray:
+    x = random_gaussian_mixture(rng, shape, n_gaussians)
+    a, b = x.min(), x.max()
+    c, d = domain[0], domain[1]
+    return (c - a) * (d - c) / (b - a) + c
 
 
 def random_sequence(
