@@ -6,19 +6,34 @@ from matplotlib.animation import FuncAnimation
 from matplotlib.ticker import FuncFormatter
 
 
-# plt.rcParams.update({
-#     "text.usetex": True,
-#     "font.family": "sans-serif",
-#     "font.sans-serif": ["Helvetica"]})
+def plot_stimuli(stimuli, **kwargs):
+    fig, ax = plt.subplots(
+        1, len(stimuli), figsize=(kwargs.pop("figsize", None) or (25, 5))
+    )
+    if len(stimuli) <= 1:
+        ax = [ax]
+    vmin = kwargs.pop("vmin", -1)
+    vmax = kwargs.pop("vmax", 1)
+    cmap = kwargs.pop("cmap", "RdBu")
+    for i, stimulus in enumerate(stimuli):
+        im = ax[i].imshow(stimulus.field, vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
+        plt.colorbar(im, ax=ax[i])
+        ax[i].set_title(
+            "Protocol:\nstart: {}, \nduration: {}, \nperiod: {}".format(
+                int(stimulus.protocol.start),
+                int(stimulus.protocol.duration),
+                int(stimulus.protocol.period),
+            ),
+        )
+    fig.tight_layout()
+    plt.show()
+    return fig, ax
 
 
 def plot_diffusivity(diff, **kwargs):
     fig, ax = plt.subplots(1, 1, figsize=(kwargs.pop("figsize", (25, 5))))
-    vmin = kwargs.pop("vmin", 0)
-    vmax = kwargs.pop("vmax", 1)
-    cmap = kwargs.pop("cmap", "gray")
-
-    ax.imshow(diff, vmin=vmin, vmax=vmax, cmap="gray")
+    im = ax.imshow(diff, cmap="gray")
+    plt.colorbar(im, ax=ax)
     return fig, ax
 
 
@@ -247,18 +262,3 @@ def show3d(state, rcount=200, ccount=200, zlim=None, figsize=None):
     # crop image
     fig.tight_layout()
     return fig, ax
-
-
-def plot_stimuli(*stimuli, **kwargs):
-    fig, ax = plt.subplots(
-        1, len(stimuli), figsize=(kwargs.pop("figsize", None) or (10, 3))
-    )
-    vmin = kwargs.pop("vmin", -1)
-    vmax = kwargs.pop("vmax", 1)
-    cmap = kwargs.pop("cmap", "RdBu")
-    for i, stimulus in enumerate(stimuli):
-        im = ax[i].imshow(stimulus.field, vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
-        plt.colorbar(im, ax=ax[i])
-        ax[i].set_title("Stimulus %d" % i)
-    plt.show()
-    return

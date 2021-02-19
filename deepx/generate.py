@@ -53,15 +53,15 @@ def random_triangular_stimulus(
     return stimulus.triangular(shape, direction, angle, coverage, modulus, protocol)
 
 
-def random_stimulus(rng: Key, shape: Shape, maxstart: int = 0) -> stimulus.Stimulus:
+def random_stimulus(rng: Key, shape: Shape, max_start: int = 0) -> stimulus.Stimulus:
     stimuli_fn = (
         random_rectangular_stimulus,
         random_triangular_stimulus,
         random_linear_stimulus,
     )
     rng_1, rng_2, rng_3, rng_4 = jax.random.split(rng, 4)
-    protocol = random_protocol(rng_1, maxstart)
-    modulus = jax.random.normal(rng_2, (1,)) + 0.5 / 1.5
+    protocol = random_protocol(rng_1, max_start=max_start)
+    modulus = 20
     stimulus_fn = partial(
         stimuli_fn[jax.random.choice(rng_3, jnp.arange(0, len(stimuli_fn)))],
         shape=shape,
@@ -93,12 +93,12 @@ def random_gaussian_mixture(rng: Key, shape: Shape, n_gaussians: int) -> jnp.nda
 
 
 def random_diffusivity(
-    rng: Key, shape: Shape, n_gaussians: int = 3, domain=(0.001, 0.003)
+    rng: Key, shape: Shape, n_gaussians: int = 3, domain=(0.0001, 0.001)
 ) -> jnp.ndarray:
-    x = random_gaussian_mixture(rng, shape, n_gaussians)
-    a, b = x.min(), x.max()
-    c, d = domain[0], domain[1]
-    return (c - a) * (d - c) / (b - a) + c
+    c = random_gaussian_mixture(rng, shape, n_gaussians)
+    a, b = c.min(), c.max()
+    y, z = domain[0], domain[1]
+    return (c - a) * (z - y) / (b - a) + y
 
 
 def random_sequence(

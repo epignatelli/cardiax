@@ -1,5 +1,5 @@
 from . import conditions
-from . import gradients
+from . import findiff
 from . import integrate
 from . import plot
 from . import solve

@@ -1,7 +1,7 @@
 from distutils.core import setup
 
 setup(
-    name="rde",
+    name="cardiax",
     version="0.1",
     description="A JAX implementation of various reaction-diffusion models",
     author="Eduardo Pignatelli",

@@ -5,8 +5,7 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
-from ..ode import plot
-from ..ode.gradients import fd
+from ..ode import findiff, plot
 from ..ode.stimulus import Stimulus
 from .params import Params
 
@@ -33,15 +32,9 @@ def step(
     stimuli: Sequence[Stimulus],
     dx: float,
 ) -> State:
-    """
-    Solves the gradients of the fenton karma equation
-    """
-    # apply stimulus
-    state = state._replace(u=stimulate(time, state.u, stimuli))
-
     # neumann boundary conditions
-    state = boundaries_conditions.apply(state)
-    diffusivity = boundaries_conditions.apply(diffusivity)
+    # state = boundaries_conditions.apply(state)
+    # diffusivity = boundaries_conditions.apply(diffusivity)
     v, w, u = state
 
     # reaction term
@@ -54,32 +47,37 @@ def step(
     j_si = -(w * (1 + jnp.tanh(params.k * (u - params.V_csi)))) / (2 * params.tau_si)
     j_ion = -(j_fi + j_so + j_si) / params.Cm
 
+    # apply stimulus by introducing fictitious current
+    # stimuli = boundaries_conditions.apply(stimuli)
+    j_ion = stimulate(time, j_ion, stimuli)
+
     # diffusion term
-    u_x = fd(u, 0) / dx
-    u_y = fd(u, 1) / dx
-    u_xx = fd(u_x, 0) / dx
-    u_yy = fd(u_y, 1) / dx
-    D_x = fd(diffusivity, 0) / dx
-    D_y = fd(diffusivity, 1) / dx
+    u_x, u_y = findiff.first(u, dx)
+    u_xx, u_yy = findiff.second(u, dx)
+    D_x, D_y = findiff.first(diffusivity, dx)
     del_u = diffusivity * (u_xx + u_yy) + (D_x * u_x) + (D_y * u_y)
 
     d_v = ((1 - p) * (1 - v) / tau_v_minus) - ((p * v) / params.tau_v_plus)
     d_w = ((1 - p) * (1 - w) / params.tau_w_minus) - ((p * w) / params.tau_w_plus)
     d_u = del_u + j_ion
 
-    # restore from boundary manipultions
+    # restore from boundary manipulations
     grads = State(d_v, d_w, d_u)
-    grads = boundaries_conditions.restore(grads)
+    # grads = boundaries_conditions.restore(grads)
     return grads
 
 
 def stimulate(time, X, stimuli):
     stimulated = jnp.zeros_like(X)
     for stimulus in stimuli:
+        # check if stimulus is in the past
         active = jnp.greater_equal(time, stimulus.protocol.start)
+        # check if stimulus is active at the current time
         active &= (
             jnp.mod(stimulus.protocol.start - time + 1, stimulus.protocol.period)
             < stimulus.protocol.duration
         )
-        stimulated = jnp.where(stimulus.field * (active), stimulus.field, stimulated)
-    return jnp.where(stimulated != 0, stimulated, X)
+        # build the stimulus field
+        stimulated = jnp.where(stimulus.field * active, stimulus.field, stimulated)
+    # set the field to the stimulus
+    return jnp.add(stimulated, X)

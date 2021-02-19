@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 from . import integrate
 from .conditions import Boundary
-from .plot import plot_state
+from .plot import plot_state, plot_diffusivity, plot_stimuli
 from .stimulus import Stimulus
 
 Params = NamedTuple  # physical parameters of the equation
@@ -25,6 +25,10 @@ def forward(
     dx: float,
     plot=True,
 ):
+    if plot:
+        plot_diffusivity(diffusivity)
+        plot_stimuli(stimuli)
+        plt.show()
 
     x = x0
     states = []
@@ -38,11 +42,23 @@ def forward(
             ),
             end="\r",
         )
-        x = _forward(
+        # x = _forward(
+        #     step_fn,
+        #     x,
+        #     t_checkpoints[i],
+        #     t_checkpoints[i + 1],
+        #     boundary_conditions,
+        #     physical_parameters,
+        #     diffusivity,
+        #     stimuli,
+        #     dt,
+        #     dx,
+        # )
+
+        x = integrate.rk45(
             step_fn,
             x,
-            t_checkpoints[i],
-            t_checkpoints[i + 1],
+            t_checkpoints,
             boundary_conditions,
             physical_parameters,
             diffusivity,
@@ -50,6 +66,7 @@ def forward(
             dt,
             dx,
         )
+
         states.append(x)
         if plot:
             plot_state(x)
@@ -71,7 +88,7 @@ def _forward(
     dx: float,
 ):
     def body_fn(t, x):
-        return integrate.euler(
+        return integrate.rk45(
             step_fn,
             x,
             t,
