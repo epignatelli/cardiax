@@ -1,0 +1,14 @@
+black
+pylint
+numpy
+scipy
+matplotlib
+future
+h5py
+jupyter
+jupyterlab
+pandas
+requests
+scikit-learn
+tqdm
+git+https://github.com/epignatelli/helx
