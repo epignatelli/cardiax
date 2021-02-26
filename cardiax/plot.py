@@ -12,8 +12,8 @@ def plot_stimuli(stimuli, **kwargs):
     )
     if len(stimuli) <= 1:
         ax = [ax]
-    vmin = kwargs.pop("vmin", -1)
-    vmax = kwargs.pop("vmax", 1)
+    vmin = kwargs.pop("vmin", -30)
+    vmax = kwargs.pop("vmax", 30)
     cmap = kwargs.pop("cmap", "RdBu")
     for i, stimulus in enumerate(stimuli):
         im = ax[i].imshow(stimulus.field, vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)

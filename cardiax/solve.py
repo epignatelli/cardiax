@@ -58,9 +58,9 @@ def init(shape):
     v = jnp.ones(shape)
     w = jnp.ones(shape)
     u = jnp.zeros(shape)
-    # l = jnp.zeros(shape)
-    # j = jnp.zeros(shape)
-    return State(v, w, u)
+    l = jnp.zeros(shape)
+    j = jnp.zeros(shape)
+    return State(v, w, u, l, j)
 
 
 @jax.jit
@@ -102,9 +102,9 @@ def step(state, t, params, diffusivity, stimuli, dt, dx):
     v = state.v + d_v[1:-1, 1:-1] * dt
     w = state.w + d_w[1:-1, 1:-1] * dt
     u = state.u + d_u[1:-1, 1:-1] * dt
-    # del_u = del_u[1:-1, 1:-1]
-    # j_ion = j_ion[1:-1, 1:-1]
-    return State(v, w, u)
+    del_u = del_u[1:-1, 1:-1]
+    j_ion = j_ion[1:-1, 1:-1]
+    return State(v, w, u, del_u, j_ion)
 
 
 @functools.partial(jax.jit, static_argnums=1)
