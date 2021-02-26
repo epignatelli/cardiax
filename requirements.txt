@@ -5,8 +5,6 @@ scipy
 matplotlib
 future
 h5py
-jupyter
-jupyterlab
 pandas
 requests
 scikit-learn
