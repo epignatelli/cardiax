@@ -26,7 +26,6 @@ def plot_stimuli(stimuli, **kwargs):
             ),
         )
     fig.tight_layout()
-    plt.show()
     return fig, ax
 
 

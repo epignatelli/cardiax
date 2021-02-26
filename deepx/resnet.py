@@ -9,7 +9,7 @@ from typing import Callable, NamedTuple, Tuple
 
 import jax
 import jax.numpy as jnp
-from cardiax import fk, ode
+import cardiax
 from helx.types import Optimiser
 from jax.experimental import optimizers, stax
 from jax.experimental.stax import Elu, FanInSum, FanOut, GeneralConv, Identity
@@ -61,10 +61,10 @@ def ResNet(
 
 @jax.jit
 def compute_loss(y_hat: jnp.ndarray, y: jnp.ndarray):
-    grad_y_hat_1 = ode.gradients.fd(y_hat, -1)
-    grad_y_hat_2 = ode.gradients.fd(y_hat, -2)
-    grad_y_1 = ode.gradients.fd(y, -1)
-    grad_y_2 = ode.gradients.fd(y, -2)
+    grad_y_hat_1 = cardiax.solve.gradient(y_hat, -1)
+    grad_y_hat_2 = cardiax.solve.gradient(y_hat, -2)
+    grad_y_1 = cardiax.solve.gradient(y, -1)
+    grad_y_2 = cardiax.solve.gradient(y, -2)
     grad_loss_1 = jnp.mean((grad_y_hat_1 - grad_y_1) ** 2)  # mse
     grad_loss_2 = jnp.mean((grad_y_hat_2 - grad_y_2) ** 2)  # mse
     grad_loss = grad_loss_1 + grad_loss_2
@@ -148,23 +148,23 @@ def logging_step(logger, loss, x, y_hat, y, step, frequency, prefix):
     # log loss
     logger.scalar("{}/loss".format(prefix), loss, step=step)
     # log input states
-    x_states = [fk.solve.State(*s.squeeze()) for s in x[0]]
-    fig, _ = ode.plot.plot_states(x_states, figsize=(15, 2.5 * x.shape[1]))
+    x_states = [cardiax.solve.State(*s.squeeze()) for s in x[0]]
+    fig, _ = cardiax.plot.plot_states(x_states, figsize=(15, 2.5 * x.shape[1]))
     logger.figure("{}/x".format(prefix), fig, step)
     # log predictions as images
-    y_hat_states = [fk.solve.State(*s.squeeze()) for s in y_hat[0]]
-    fig, _ = ode.plot.plot_states(y_hat_states, figsize=(15, 2.5 * y_hat.shape[1]))
+    y_hat_states = [cardiax.solve.State(*s.squeeze()) for s in y_hat[0]]
+    fig, _ = cardiax.plot.plot_states(y_hat_states, figsize=(15, 2.5 * y_hat.shape[1]))
     logger.figure("{}/y_hat".format(prefix), fig, step)
     # log truth
-    y_states = [fk.solve.State(*s.squeeze()) for s in y[0]]
-    fig, _ = ode.plot.plot_states(y_states, figsize=(15, 2.5 * y.shape[1]))
+    y_states = [cardiax.solve.State(*s.squeeze()) for s in y[0]]
+    fig, _ = cardiax.plot.plot_states(y_states, figsize=(15, 2.5 * y.shape[1]))
     logger.figure("{}/y".format(prefix), fig, step)
     # log error
     min_time = min(y.shape[1], y_hat.shape[1])
     error_states = [
-        fk.solve.State(*s.squeeze()) for s in y_hat[0, :min_time] - y[0, :min_time]
+        cardiax.solve.State(*s.squeeze()) for s in y_hat[0, :min_time] - y[0, :min_time]
     ]
-    fig, _ = ode.plot.plot_states(
+    fig, _ = cardiax.plot.plot_states(
         error_states, vmin=-1, vmax=1, figsize=(15, 2.5 * y_hat.shape[1])
     )
     logger.figure("{}/y_hat - y".format(prefix), fig, step)

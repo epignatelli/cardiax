@@ -3,8 +3,7 @@ from typing import Tuple, Sequence
 
 import jax
 import jax.numpy as jnp
-from cardiax import fk, ode
-from cardiax.ode import stimulus
+import cardiax
 
 Shape = Tuple[int, ...]
 Key = jnp.ndarray
@@ -16,44 +15,48 @@ def random_protocol(
     max_start: int = 1000,
     min_period: int = 400,
     max_period: int = 1e9,
-) -> stimulus.Protocol:
+) -> cardiax.stimulus.Protocol:
     rng_1, rng_2 = jax.random.split(rng)
     start = jax.random.randint(rng_1, (1,), min_start, max_start)
     duration = 2  # always instantaneous
     period = jax.random.randint(rng_2, (1,), min_period, max_period)
-    return stimulus.Protocol(start, duration, period)
+    return cardiax.stimulus.Protocol(start, duration, period)
 
 
 def random_rectangular_stimulus(
-    rng: Key, shape: Shape, protocol: stimulus.Protocol, modulus: float = 0.6
-) -> stimulus.Stimulus:
+    rng: Key, shape: Shape, protocol: cardiax.stimulus.Protocol, modulus: float = 0.6
+) -> cardiax.stimulus.Stimulus:
     rng_1, rng_2 = jax.random.split(rng)
     xs = jax.random.randint(rng_1, (2,), 0, shape[0] // 3)
     ys = jax.random.randint(rng_2, (2,), 0, shape[0] // 3)
     centre = (xs[0], ys[0])
     size = (xs[1], ys[1])
-    return stimulus.rectangular(shape, centre, size, modulus, protocol)
+    return cardiax.stimulus.rectangular(shape, centre, size, modulus, protocol)
 
 
 def random_linear_stimulus(
-    rng: Key, shape: Shape, protocol: stimulus.Protocol, modulus: float = 0.6
-) -> stimulus.Stimulus:
+    rng: Key, shape: Shape, protocol: cardiax.stimulus.Protocol, modulus: float = 0.6
+) -> cardiax.stimulus.Stimulus:
     rng_1, rng_2 = jax.random.split(rng)
     direction = jax.random.randint(rng_1, (1,), 0, 3)
     coverage = jax.random.normal(rng_2, (1,))
-    return stimulus.linear(shape, direction, coverage, modulus, protocol)
+    return cardiax.stimulus.linear(shape, direction, coverage, modulus, protocol)
 
 
 def random_triangular_stimulus(
-    rng: Key, shape: Shape, protocol: stimulus.Protocol, modulus: float = 0.6
-) -> stimulus.Stimulus:
+    rng: Key, shape: Shape, protocol: cardiax.stimulus.Protocol, modulus: float = 0.6
+) -> cardiax.stimulus.Stimulus:
     rng_1, _ = jax.random.split(rng)
     angle, coverage = jax.random.normal(rng_1, (2,))
     direction = jax.random.randint(rng_1, (1,), 0, 3)
-    return stimulus.triangular(shape, direction, angle, coverage, modulus, protocol)
+    return cardiax.stimulus.triangular(
+        shape, direction, angle, coverage, modulus, protocol
+    )
 
 
-def random_stimulus(rng: Key, shape: Shape, max_start: int = 0) -> stimulus.Stimulus:
+def random_stimulus(
+    rng: Key, shape: Shape, max_start: int = 0
+) -> cardiax.stimulus.Stimulus:
     stimuli_fn = (
         random_rectangular_stimulus,
         random_triangular_stimulus,
@@ -61,7 +64,7 @@ def random_stimulus(rng: Key, shape: Shape, max_start: int = 0) -> stimulus.Stim
     )
     rng_1, rng_2, rng_3, rng_4 = jax.random.split(rng, 4)
     protocol = random_protocol(rng_1, max_start=max_start)
-    modulus = 20
+    modulus = 20.0
     stimulus_fn = partial(
         stimuli_fn[jax.random.choice(rng_3, jnp.arange(0, len(stimuli_fn)))],
         shape=shape,
@@ -103,7 +106,7 @@ def random_diffusivity(
 
 def random_sequence(
     rng: Key,
-    cell_parameters: fk.params.Params,
+    cell_parameters: cardiax.params.Params,
     filepath: str,
     shape: Sequence[int] = (1200, 1200),
     n_stimuli: int = 3,
@@ -125,11 +128,10 @@ def random_sequence(
 
     # generate sequence
     return sequence(
-        start=fk.convert.ms_to_units(start, dt),
-        stop=fk.convert.ms_to_units(stop, dt),
+        start=cardiax.convert.ms_to_units(start, dt),
+        stop=cardiax.convert.ms_to_units(stop, dt),
         dt=dt,
         dx=dx,
-        boundary_conditions=ode.conditions.neumann,
         cell_parameters=cell_parameters,
         diffusivity=diffusivity,
         stimuli=stimuli,
@@ -142,7 +144,6 @@ def sequence(
     stop,
     dt,
     dx,
-    boundary_conditions,
     cell_parameters,
     diffusivity,
     stimuli,
@@ -165,47 +166,45 @@ def sequence(
 
     # shapes
     shape = diffusivity.shape
-    tissue_size = fk.convert.shape_to_realsize(shape, dx)
+    tissue_size = cardiax.convert.shape_to_realsize(shape, dx)
 
     # print and plot
     print("Tissue size", tissue_size, "Grid size", diffusivity.shape)
     print("Checkpointing at:", checkpoints)
     print("Cell parameters", cell_parameters)
-    ode.plot.plot_diffusivity(diffusivity)
-    ode.plot.plot_stimuli(*stimuli)
+    cardiax.plot.plot_diffusivity(diffusivity)
+    cardiax.plot.plot_stimuli(*stimuli)
 
     # init storage
     init_size = reshape or shape
-    hdf5 = fk.io.init(
+    hdf5 = cardiax.io.init(
         filename, init_size, n_iter=len(checkpoints), n_stimuli=len(stimuli)
     )
-    fk.io.add_params(hdf5, cell_parameters, diffusivity, dt, dx, shape=reshape)
-    fk.io.add_stimuli(hdf5, stimuli, shape=reshape)
+    cardiax.io.add_params(hdf5, cell_parameters, diffusivity, dt, dx, shape=reshape)
+    cardiax.io.add_stimuli(hdf5, stimuli, shape=reshape)
 
     states_dset = hdf5["states"]
-    state = fk.solve.init(shape)
+    state = cardiax.solve.init(shape)
     for i in range(len(checkpoints) - 1):
         print(
             "Solving at: %dms/%dms\t\t"
             % (
-                fk.convert.units_to_ms(checkpoints[i + 1], dt),
-                fk.convert.units_to_ms(checkpoints[-1], dt),
+                cardiax.convert.units_to_ms(checkpoints[i + 1], dt),
+                cardiax.convert.units_to_ms(checkpoints[-1], dt),
             ),
             end="\r",
         )
-        state = ode.solve._forward(
-            fk.solve.step,
+        state = cardiax.solve._forward(
             state,
             checkpoints[i],
             checkpoints[i + 1],
-            boundary_conditions,
             cell_parameters,
             diffusivity,
             stimuli,
             dt,
             dx,
         )
-        fk.io.add_state(states_dset, state, i, shape=(len(state), *reshape))
+        cardiax.io.add_state(states_dset, state, i, shape=(len(state), *reshape))
 
     print()
     hdf5.close()

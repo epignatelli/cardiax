@@ -7,7 +7,7 @@ from typing import Callable
 import h5py
 import numpy as onp
 import jax
-from cardiax import fk
+import cardiax
 
 
 class DataStream:
@@ -207,7 +207,7 @@ class HDF5Sequence:
     def open(self):
         file = h5py.File(self.filename, "r")
         self.states = file["states"]
-        self.stimuli = fk.io.load_stimuli(file)
+        self.stimuli = cardiax.io.load_stimuli(file)
         if self.preload:
             logging.debug("Preloading dataset {}".format(self.filename))
             if not isinstance(self.preload, Callable):

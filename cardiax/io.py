@@ -2,7 +2,7 @@ import h5py
 import jax
 import jax.numpy as np
 from .params import Params
-from ..ode.stimulus import Protocol, Stimulus
+from .stimulus import Protocol, Stimulus
 
 
 def init(path, shape, n_iter, n_stimuli, n_variables=5):
