@@ -106,7 +106,12 @@ def random_diffusivity(
     y, z = domain[0], domain[1]
     return (c - a) * (z - y) / (b - a) + y
 
-def random_diffusivity_scar(params: dict = ipu.def_params, SAVE_SCAR: bool = False):
+def random_diffusivity_scar(shape: Shape,
+    params: dict = ipu.def_params, 
+    SAVE_SCAR: bool = False):
+    
+    # replace size
+    params['RequiredImageSize'] = Shape
     
     VALID_SCAR = False
     CentroidSpline = ipu.CreateSplineCentroids(params)
