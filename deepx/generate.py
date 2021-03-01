@@ -107,7 +107,8 @@ def random_diffusivity(
     return (c - a) * (z - y) / (b - a) + y
 
 def random_diffusivity_scar(shape: Shape,
-    params: dict = ipu.def_params, 
+    params: dict = ipu.def_params,
+    domain=(0.0001, 0.001),    
     SAVE_SCAR: bool = False):
     
     # replace size
@@ -143,23 +144,35 @@ def random_diffusivity_scar(shape: Shape,
             break
             SoftenedComposite = np.zeros(params['RequiredImageSize'])
     
-    # convert to jax array
-    SoftenedComposite = jnp.array(SoftenedComposite)
-    
     if SAVE_SCAR:
         ipu.save_scar_as_array(SoftenedComposite, params = params, 
                             root_file_name = ipu.def_root_file_name)
-        
+    
+    # rescale according to the required domain 
+    SoftenedComposite = (1 - SoftenedComposite)
+    a, b = SoftenedComposite.min(), SoftenedComposite.max()
+    y, z = domain[0], domain[1]
+    SoftenedComposite = (SoftenedComposite - a) * (z - y) / (b - a) + y
+    
+    # convert to jax array
+    SoftenedComposite = jnp.array(SoftenedComposite)
+    
     # returned as a numpy array
     return SoftenedComposite
 
 def random_diffusivity_load_scar(
-    shortID: str = ipu.def_shortID, 
+    shortID: str = ipu.def_shortID,
+    domain=(0.0001, 0.001),
     root_file_name: str = ipu.def_root_file_name):
     #load scar from file
     SoftenedComposite = ipu.load_scar_as_array(shortID = shortID, 
                                             root_file_name = root_file_name)
-                                            
+    
+    SoftenedComposite = (1 - SoftenedComposite)
+    a, b = SoftenedComposite.min(), SoftenedComposite.max()
+    y, z = domain[0], domain[1]
+    SoftenedComposite = (SoftenedComposite - a) * (z - y) / (b - a) + y
+    
     # convert to jax array
     SoftenedComposite = jnp.array(SoftenedComposite)
     
