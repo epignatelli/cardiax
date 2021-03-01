@@ -404,7 +404,8 @@ def save_scar_as_array(SoftenedComposite, params = def_params, root_file_name = 
                 check_contrast = False)
                 
 def load_scar_as_array(shortID = def_shortID, root_file_name = def_root_file_name):
-    SoftenedComposite = np.load(root_file_name.format(content = 'output_scar', ID = shortID, ext ='npy'))
+    SoftenedComposite = np.load(root_file_name.format(content = 'output_scar', ID = shortID, ext ='npy'),
+                                allow_pickle=False)
     return SoftenedComposite
     
 
