@@ -36,6 +36,7 @@ size of the resulting edge.
 
 from scipy.signal import convolve2d as conv2d
 import skimage
+from skimage.io import imsave
 import numpy as np
 from scipy import interpolate
 import shortuuid
@@ -51,11 +52,11 @@ def_params['ScarScaleFactor'] = .4
 def_params['RequiredImageSize'] = (1200, 1200)
 def_params['CONSERVATIVE_CENTROID'] = True
 def_params['GaussSigma'] = 2
-def_params['RequiredAvgEdgeSize'] = 30 # in pixels
+def_params['RequiredAvgEdgeSize'] = 22 # in pixels
 def_params['ADD_GAP'] = False
 def_params['GapFactor'] = .5
 
-def_shortID = ''
+def_shortID = 'BJdY4KfkSDsa4wPe7i3HPb'
 
 def_root_file_name = 'data/scars_maps/{content}_{ID}.{ext}'
 
@@ -249,7 +250,7 @@ def CreateSplineCentroids(params = def_params):#r0 =1.2 , maxProtrudeFactor = 0.
     select_points = np.arange(starting_point,starting_point+Npoints) % P[0].shape
     return (P[0][select_points], P[1][select_points])
 
-def MakeAndSumCompositeBlob(params = def_params, CentroidSpline):
+def MakeAndSumCompositeBlob(params = def_params, CentroidSpline = None):
     ''' 
     Generates a number of closed splines objects based on how many points
     there are in the CentroidSpline input.
@@ -269,7 +270,9 @@ def MakeAndSumCompositeBlob(params = def_params, CentroidSpline):
     CentroidSpline is a list of centroids returned by CreateSplineCentroids
     
     '''
-
+    if CetroidSpline is None:
+        CentroidSpline = CreateSplineCentroids(params = params)
+        
     # recreate parameters as individual variables
     maxProtrudeFactorCentroid = params['maxProtrudeFactorCentroid']
     r0Centroid = params['r0Centroid']
