@@ -8,5 +8,8 @@ h5py
 pandas
 requests
 scikit-learn
+scikit-image
+shortuuid
+uuid
 tqdm
 git+https://github.com/epignatelli/helx
