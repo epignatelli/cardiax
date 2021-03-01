@@ -109,7 +109,8 @@ def random_diffusivity_scar(params: dict = ipu.def_params, SAVE_SCAR: bool = Fal
     
     VALID_SCAR = False
     CentroidSpline = ipu.CreateSplineCentroids(params)
-
+    nb_attempts = 0
+    
     # Create individual blobs, scale them up and combine them
     while not VALID_SCAR:
         try:
@@ -125,10 +126,16 @@ def random_diffusivity_scar(params: dict = ipu.def_params, SAVE_SCAR: bool = Fal
         except ValueError as err:
             print('Attempt at generating random scar map failed because of a ValueError. Trying again')
             VALID_SCAR = False
+            nb_attempts += 1
             
         except:
-            print('Attempt at generating random scar map failed because of an unexpected error. Trying again')
+            print('Attempt at generating random scar map failed because of an unexpected error.')
+            print(f'The error is {sys.exc_info()[0]}. Trying again now.')
             VALID_SCAR = False
+            nb_attempts += 1
+        if nb_attempts >5:
+            break
+            SoftenedComposite = np.zeros(params['RequiredImageSize'])
     
     assert(isinstance(SoftenedComposite, (np.ndarray, np.generic)))
     
