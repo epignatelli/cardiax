@@ -111,7 +111,7 @@ def random_diffusivity_scar(shape: Shape,
     SAVE_SCAR: bool = False):
     
     # replace size
-    params['RequiredImageSize'] = tuple(shape)
+    params['RequiredImageSize'] = shape
     
     VALID_SCAR = False
     CentroidSpline = ipu.CreateSplineCentroids(params)
