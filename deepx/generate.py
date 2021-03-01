@@ -5,6 +5,9 @@ import jax
 import jax.numpy as jnp
 import cardiax
 
+from deepx import utils_scars as ipu
+import sys
+
 Shape = Tuple[int, ...]
 Key = jnp.ndarray
 
@@ -103,7 +106,66 @@ def random_diffusivity(
     y, z = domain[0], domain[1]
     return (c - a) * (z - y) / (b - a) + y
 
+def random_diffusivity_scar(shape: Shape,
+    params: dict = ipu.def_params, 
+    SAVE_SCAR: bool = False):
+    
+    # replace size
+    params['RequiredImageSize'] = shape
+    
+    VALID_SCAR = False
+    CentroidSpline = ipu.CreateSplineCentroids(params)
+    nb_attempts = 0
+    
+    # Create individual blobs, scale them up and combine them
+    while not VALID_SCAR:
+        try:
+            res_dict = ipu.MakeAndSumCompositeBlob(params, CentroidSpline)
+        
+            # taper the edges
+            SoftenedComposite, avg_edge_size_pixel, avg_edge_size_prop, GaussShape = ipu.SoftenPolyAndSplineCurve(
+                res_dict['CompositeSplineMask'], GaussShape = None, GaussSigma= params['GaussSigma'], 
+                AvgEdgeSize = params['RequiredAvgEdgeSize'])
+            
+            VALID_SCAR = True                    
+        
+        except ValueError as err:
+            print('Attempt at generating random scar map failed because of a ValueError. Trying again')
+            VALID_SCAR = False
+            nb_attempts += 1
+            
+        except:
+            print('Attempt at generating random scar map failed because of an unexpected error.')
+            print(f'The error is {sys.exc_info()[0]}. Trying again now.')
+            VALID_SCAR = False
+            nb_attempts += 1
+        if nb_attempts >5:
+            break
+            SoftenedComposite = np.zeros(params['RequiredImageSize'])
+    
+    # convert to jax array
+    SoftenedComposite = jnp.array(SoftenedComposite)
+    
+    if SAVE_SCAR:
+        ipu.save_scar_as_array(SoftenedComposite, params = params, 
+                            root_file_name = ipu.def_root_file_name)
+        
+    # returned as a numpy array
+    return SoftenedComposite
 
+def random_diffusivity_load_scar(
+    shortID: str = ipu.def_shortID, 
+    root_file_name: str = ipu.def_root_file_name):
+    #load scar from file
+    SoftenedComposite = ipu.load_scar_as_array(shortID = shortID, 
+                                            root_file_name = root_file_name)
+                                            
+    # convert to jax array
+    SoftenedComposite = jnp.array(SoftenedComposite)
+    
+    return SoftenedComposite
+    
+    
 def random_sequence(
     rng: Key,
     cell_parameters: cardiax.params.Params,
