@@ -270,7 +270,7 @@ def MakeAndSumCompositeBlob(params = def_params, CentroidSpline = None):
     CentroidSpline is a list of centroids returned by CreateSplineCentroids
     
     '''
-    if CetroidSpline is None:
+    if CentroidSpline is None:
         CentroidSpline = CreateSplineCentroids(params = params)
         
     # recreate parameters as individual variables
