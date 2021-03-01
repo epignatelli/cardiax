@@ -38,6 +38,26 @@ from scipy.signal import convolve2d as conv2d
 import skimage
 import numpy as np
 from scipy import interpolate
+import shortuuid
+import uuid  
+import json
+
+def_params = {}
+def_params['maxProtrudeFactorCentroid'] = .2
+def_params['r0Centroid'] = 1.5
+def_params['maxProtrudeFactor'] = 0.2
+def_params['r0'] = 1
+def_params['ScarScaleFactor'] = .4
+def_params['RequiredImageSize'] = (1200, 1200)
+def_params['CONSERVATIVE_CENTROID'] = True
+def_params['GaussSigma'] = 2
+def_params['RequiredAvgEdgeSize'] = 30 # in pixels
+def_params['ADD_GAP'] = False
+def_params['GapFactor'] = .5
+
+def_shortID = ''
+
+def_root_file_name = 'data/scars_maps/{content}_{ID}.{ext}'
 
 def makegauss2D(shape=(3,3),sigma=0.5):
     """
@@ -105,7 +125,12 @@ def makePolyAndSplineCurve(r0=30, maxProtrudeFactor=0.3, NGon=11, NSplinePts=100
 
     delta_t = 1/(NGon-1);
     t = np.arange(0, 1+delta_t, delta_t)
-    rdash = r0+maxPerturbMag*np.random.randn(NGon)
+    
+    # obtain perturbation to the radius based on a slightly shifted and scaled gaussian
+    # this is to skew the values towards the positive range
+    rperturbation = np.random.normal(loc=0.5, scale = 0.6, size = NGon) #random.randn(NGon)
+    # 
+    rdash = r0+maxPerturbMag*rperturbation
 
     Px = rdash*np.sin(2*np.pi*t)
     Py = rdash*np.cos(2*np.pi*t)
@@ -185,7 +210,7 @@ def SoftenPolyAndSplineCurve(MapMaskSp, GaussShape = 4, GaussSigma= 2,
         # do multiple convolutions and get avg edge size
         
         edge_size_diff = []
-        CandidateGaussShapes = np.arange(2,8)
+        CandidateGaussShapes = np.arange(4,22)
         for iGaussShape in CandidateGaussShapes:
             iSoftenedBlob, iavg_edge_size_pixel, iavg_edge_size_prop = ConvolveAndAvgEdge(
                 iGaussShape, GaussSigma)
@@ -206,7 +231,7 @@ def SoftenPolyAndSplineCurve(MapMaskSp, GaussShape = 4, GaussSigma= 2,
     return SoftenedBlob, avg_edge_size_pixel, avg_edge_size_prop, GaussShape
 
 # Create function to determine centerline for blobs
-def CreateSplineCentroids(params):#r0 =1.2 , maxProtrudeFactor = 0.4):
+def CreateSplineCentroids(params = def_params):#r0 =1.2 , maxProtrudeFactor = 0.4):
     ''' generate centroids for all closed spline objects as a section of 
     another spline curve'''
     
@@ -214,17 +239,17 @@ def CreateSplineCentroids(params):#r0 =1.2 , maxProtrudeFactor = 0.4):
     maxProtrudeFactor = params['maxProtrudeFactorCentroid']
     
     if r0 is None:
-        r0 = 1.2
+        r0 = 1
     if maxProtrudeFactor is None:
-        maxProtrudeFactor = 0.4
+        maxProtrudeFactor = 0.2
         
-    P, _ = makePolyAndSplineCurve(r0= r0, maxProtrudeFactor = maxProtrudeFactor)
-    Npoints = np.random.randint(3,8)
+    P, _ = makePolyAndSplineCurve(r0= r0, maxProtrudeFactor = maxProtrudeFactor, NGon=12)
+    Npoints = np.random.randint(3,7)
     starting_point = np.random.randint(P[0].shape)
     select_points = np.arange(starting_point,starting_point+Npoints) % P[0].shape
     return (P[0][select_points], P[1][select_points])
 
-def MakeAndSumCompositeBlob(params, CentroidSpline):
+def MakeAndSumCompositeBlob(params = def_params, CentroidSpline):
     ''' 
     Generates a number of closed splines objects based on how many points
     there are in the CentroidSpline input.
@@ -283,6 +308,9 @@ def MakeAndSumCompositeBlob(params, CentroidSpline):
             _, GapPts = makePolyAndSplineCurve(r0 = r0*GapFactor, maxProtrudeFactor = maxProtrudeFactor*GapFactor)
             for j in range(2):
                 GapPts[j] += CentroidSpline[j][i]
+        else:
+            GapPts = 0
+            GapMask = 0
     
     # set the overall location in the image
     maxField = np.ceil(maxExtension/ScarScaleFactor)
@@ -361,4 +389,22 @@ def MakeAndSumCompositeBlob(params, CentroidSpline):
     res_dict['nBlobs'] = nBlobs
     
     return res_dict
+
+def save_scar_as_array(SoftenedComposite, params = def_params, root_file_name = def_root_file_name):
+    #save results with parameter set and image    
+    for content, ext in zip(['params','output_scar','scar_image'],['json','npy','png']):
+        formatted_file = root_file_name.format(content = content, ID = shortu, ext = ext)
+        if ext == 'npy':
+            np.save(formatted_file, SoftenedComposite)
+        elif ext == 'json':
+            with open(formatted_file, 'w') as f:
+                json.dump(params, f)
+        elif ext == 'png':
+            imsave(formatted_file, np.round(SoftenedComposite*255).astype(np.uint8),
+                check_contrast = False)
+                
+def load_scar_as_array(shortID = def_shortID, root_file_name = def_root_file_name):
+    SoftenedComposite = np.load(root_file_name.format(content = 'output_scar', ID = shortID, ext ='npy'))
+    return SoftenedComposite
+    
 
