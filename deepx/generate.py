@@ -138,7 +138,8 @@ def random_diffusivity_scar(params: dict = ipu.def_params, SAVE_SCAR: bool = Fal
             break
             SoftenedComposite = np.zeros(params['RequiredImageSize'])
     
-    assert(isinstance(SoftenedComposite, (np.ndarray, np.generic)))
+    # convert to jax array
+    SoftenedComposite = jnp.array(SoftenedComposite)
     
     if SAVE_SCAR:
         ipu.save_scar_as_array(SoftenedComposite, params = params, 
@@ -153,6 +154,10 @@ def random_diffusivity_load_scar(
     #load scar from file
     SoftenedComposite = ipu.load_scar_as_array(shortID = shortID, 
                                             root_file_name = root_file_name)
+                                            
+    # convert to jax array
+    SoftenedComposite = jnp.array(SoftenedComposite)
+    
     return SoftenedComposite
     
     
