@@ -143,7 +143,7 @@ def random_diffusivity_load_scar(
     shortID: str = ipu.def_shortID, 
     root_file_name: str = ipu.def_root_file_name):
     #load scar from file
-    SoftenedComposite = load_scar_as_array(shortID = shortID, 
+    SoftenedComposite = ipu.load_scar_as_array(shortID = shortID, 
                                             root_file_name = root_file_name)
     return SoftenedComposite
     
