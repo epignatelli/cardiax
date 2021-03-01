@@ -1,3 +1,39 @@
+'''
+utils_scars.py by Stef Garasto
+
+Description.
+
+Utils to help generate a scar map consisting of multiple overlapping polygons created by 
+using a closed spline curve as their contours (with the option to add a gap in the middle). 
+By varying the parameters a wide range of scar maps can be generated.
+
+Specifics:
+
+First, the centroids of the different objects making up the scar are created by selecting a 
+subset of adjacent points from a pertured spline curve (see CreateSplineCentroids). 
+The number of selected points gives the number of closed splines objects to generate and add together. 
+
+After it generates this number of closed spline curves (randomly perturbed), it converts them 
+to binary images and sums them together as an OR operation (see MakeAndSumCompositeBlob). 
+Individual Splines object are shifted based on their individual centroid and a global centroid. 
+The global centroid defines where they are in the image, the individual centroids define where 
+they are wrt each other. Aside from being shifted, they are also scaled to fit within a larger image. 
+The scale ratio is given by specifying how the big one wants the image to be and what the scale of 
+the scar wrt to the full image should be.
+
+The scale factor is basically the scale factor between the width/height of the image and the shorter 
+side of the composite scar (well, at least it is roughly that, I think - this part is done a bit in 
+an approximate way).
+
+Then, the final image is smoothed to create a tapered edge (see SoftenPolyAndSplineCurve). 
+To do this, the function requires a given average size (AvgEdgeSize) for the edges coming 
+out of the convolution. The function will do its best to find the gaussian filter that gets 
+us as close as possible to the required size (within a certain range). AvgEdgeSize can be 
+specified either in pixels (>1 values) or in proportions (<1 values). The alternative would 
+be to convolve with a fixed sixe Gaussian (also implemented), but this doesn't control for the 
+size of the resulting edge.
+'''
+
 from scipy.signal import convolve2d as conv2d
 import skimage
 import numpy as np
