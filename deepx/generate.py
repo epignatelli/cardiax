@@ -5,6 +5,8 @@ import jax
 import jax.numpy as jnp
 import cardiax
 
+from cardiax.deepx import utils_scars as ipu
+
 Shape = Tuple[int, ...]
 Key = jnp.ndarray
 
@@ -103,7 +105,49 @@ def random_diffusivity(
     y, z = domain[0], domain[1]
     return (c - a) * (z - y) / (b - a) + y
 
+def random_diffusivity_scar(params: dict = ipu.def_params, SAVE_SCAR: bool = False):
+    
+    VALID_SCAR = False
+    CentroidSpline = ipu.CreateSplineCentroids(params)
 
+    # Create individual blobs, scale them up and combine them
+    while not VALID_SCAR:
+        try:
+            res_dict = ipu.MakeAndSumCompositeBlob(params, CentroidSpline)
+        
+            # taper the edges
+            SoftenedComposite, avg_edge_size_pixel, avg_edge_size_prop, GaussShape = ipu.SoftenPolyAndSplineCurve(
+                res_dict['CompositeSplineMask'], GaussShape = None, GaussSigma= params['GaussSigma'], 
+                AvgEdgeSize = params['RequiredAvgEdgeSize'])
+            
+            VALID_SCAR = True                    
+        
+        except ValueError as err:
+            print('Attempt at generating random scar map failed because of a ValueError. Trying again')
+            VALID_SCAR = False
+            
+        except:
+            print('Attempt at generating random scar map failed because of an unexpected error. Trying again')
+            VALID_SCAR = False
+    
+    assert(isinstance(SoftenedComposite, (np.ndarray, np.generic)))
+    
+    if SAVE_SCAR:
+        ipu.save_scar_as_array(SoftenedComposite, params = params, 
+                            root_file_name = ipu.def_root_file_name)
+        
+    # returned as a numpy array
+    return SoftenedComposite
+
+def random_diffusivity_load_scar(
+    shortID: str = ipu.def_shortID, 
+    root_file_name: str = ipu.def_root_file_name):
+    #load scar from file
+    SoftenedComposite = load_scar_as_array(shortID = shortID, 
+                                            root_file_name = root_file_name)
+    return SoftenedComposite
+    
+    
 def random_sequence(
     rng: Key,
     cell_parameters: cardiax.params.Params,
