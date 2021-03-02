@@ -3,6 +3,7 @@ import functools
 import matplotlib.pyplot as plt
 import jax
 import jax.numpy as jnp
+from jax.experimental import ode
 from . import plot
 
 
@@ -15,7 +16,15 @@ class State(NamedTuple):
 
 
 def forward(
-    state, checkpoints, cell_parameters, diffusivity, stimuli, dt, dx, plot_while=False
+    state,
+    checkpoints,
+    cell_parameters,
+    diffusivity,
+    stimuli,
+    dt,
+    dx,
+    integrator="euler",
+    plot_while=False,
 ):
     if plot_while:
         fig, ax = plot.plot_stimuli(stimuli)
@@ -25,6 +34,11 @@ def forward(
         fig, ax = plot.plot_state(state)
         fig.suptitle("Initial state")
         plt.show()
+
+    integrator = integrator.lower()
+    integrator = step_euler if integrator == "euler" else step_rk45
+    f = functools.partial(_forward, integrator=integrator)
+
     states = []
     for i in range(len(checkpoints) - 1):
         print(
@@ -36,7 +50,7 @@ def forward(
             ),
             end="\r",
         )
-        state = _forward(
+        state = f(
             state,
             checkpoints[i],
             checkpoints[i + 1],
@@ -105,21 +119,22 @@ def step(state, t, params, diffusivity, stimuli, dt, dx):
         del_u[1:-1, 1:-1],
         j_ion[1:-1, 1:-1],
     )
-    # euler update and unpadding
-    v = state.v + d_v[1:-1, 1:-1] * dt
-    w = state.w + d_w[1:-1, 1:-1] * dt
-    u = state.u + d_u[1:-1, 1:-1] * dt
-    del_u = del_u[1:-1, 1:-1]
-    j_ion = j_ion[1:-1, 1:-1]
-    return State(v, w, u, del_u, j_ion)
+    # # euler update and unpadding
+    # v = state.v + d_v[1:-1, 1:-1] * dt
+    # w = state.w + d_w[1:-1, 1:-1] * dt
+    # u = state.u + d_u[1:-1, 1:-1] * dt
+    # del_u = del_u[1:-1, 1:-1]
+    # j_ion = j_ion[1:-1, 1:-1]
+    # return State(v, w, u, del_u, j_ion)
 
 
-def euler(
-    f: Callable, x: jnp.ndarray, t: float, *f_args: Any, **integrator_kwargs: Any
-):
-    dt = integrator_kwargs.pop("dt")
-    grads = f(x, t, *f_args)
-    return jax.tree_multimap(lambda v, dv: jnp.add(v, dv * dt), x, grads)
+def step_euler(state, t, params, diffusivity, stimuli, dt, dx):
+    grads = step(state, t, params, diffusivity, stimuli, dt, dx)
+    return jax.tree_multimap(lambda v, dv: jnp.add(v, dv * dt), state, grads)
+
+
+def step_rk45(state, t, params, diffusivity, stimuli, dt, dx):
+    return ode.odeint(step, state, t, params, diffusivity, stimuli, dt, dx)
 
 
 @functools.partial(jax.jit, static_argnums=1)
@@ -178,24 +193,12 @@ def stimulate(t, X, stimuli):
 
 
 @jax.jit
-def _forward(state, t, t_end, params, diffusivity, stimuli, dt, dx):
+def _forward(integrator, state, t, t_end, params, diffusivity, stimuli, dt, dx):
     # iterate
     state = jax.lax.fori_loop(
         t,
         t_end,
-        lambda i, state: step(state, i, params, diffusivity, stimuli, dt, dx),
+        lambda i, state: integrator(state, i, params, diffusivity, stimuli, dt, dx),
         init_val=state,
     )
     return state
-
-
-@functools.partial(jax.jit, static_argnums=(1, 2))
-def _forward_stack(state, t, t_end, params, diffusion, stimuli, dt, dx):
-    # iterate
-    def _step(state, i):
-        new_state = step(state, i, params, diffusion, stimuli, dt, dx)
-        return (new_state, new_state)
-
-    xs = jnp.arange(t, t_end)
-    _, states = jax.lax.scan(_step, state, xs)
-    return states
