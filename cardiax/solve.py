@@ -192,7 +192,7 @@ def stimulate(t, X, stimuli):
     return jnp.where(stimulated != 0, stimulated, X)
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnums=0)
 def _forward(integrator, state, t, t_end, params, diffusivity, stimuli, dt, dx):
     # iterate
     state = jax.lax.fori_loop(
