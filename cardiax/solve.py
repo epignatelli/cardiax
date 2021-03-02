@@ -11,8 +11,6 @@ class State(NamedTuple):
     v: jnp.ndarray
     w: jnp.ndarray
     u: jnp.ndarray
-    l: jnp.ndarray = None
-    j: jnp.ndarray = None
 
 
 def forward(
@@ -71,9 +69,7 @@ def init(shape):
     v = jnp.ones(shape)
     w = jnp.ones(shape)
     u = jnp.zeros(shape)
-    l = jnp.zeros(shape)
-    j = jnp.zeros(shape)
-    return State(v, w, u, l, j)
+    return State(v, w, u)
 
 
 @jax.jit
@@ -115,16 +111,7 @@ def step(state, t, params, diffusivity, stimuli, dx):
         d_v[1:-1, 1:-1],
         d_w[1:-1, 1:-1],
         d_u[1:-1, 1:-1],
-        del_u[1:-1, 1:-1],
-        j_ion[1:-1, 1:-1],
     )
-    # # euler update and unpadding
-    # v = state.v + d_v[1:-1, 1:-1] * dt
-    # w = state.w + d_w[1:-1, 1:-1] * dt
-    # u = state.u + d_u[1:-1, 1:-1] * dt
-    # del_u = del_u[1:-1, 1:-1]
-    # j_ion = j_ion[1:-1, 1:-1]
-    # return State(v, w, u, del_u, j_ion)
 
 
 def step_euler(state, t, params, diffusivity, stimuli, dt, dx):
