@@ -102,9 +102,7 @@ def random_diffusivity(
     shape: Shape,
     domain=(0.0001, 0.001),
 ) -> jnp.ndarray:
-    rng_1, rng_2 = jax.random.split(rng)
-    blur_kerne_size = int((jax.random.normal(rng_1, (1,)) * 0.4) * shape[0])
-    c = ipu.random_diffusivity_scar(rng, shape, blur_kerne_size)
+    c = ipu.random_diffusivity_scar(rng, shape)
     a, b = c.min(), c.max()
     y, z = domain[0], domain[1]
     return (c - a) * (z - y) / (b - a) + y
