@@ -376,7 +376,7 @@ def MakeAndSumCompositeBlob(rng, params=def_params, CentroidSpline=None):
     if scar.sum() > 0:
         scar = (scar - scar.min()) / (scar.max() - scar.min())
     else:
-        scar = jnp.ones(shape)
+        scar = jnp.zeros(shape)
 
     res_dict = {}
     res_dict["CompositeSplineMask"] = scar
