@@ -87,6 +87,7 @@ def drawpolyintoemptycanvas(shape, x, y, tx, ty):
 
     R = shape[1] - (ty + y)
     C = tx + x
+
     R = jnp.clip(R, 0, shape[1])
     C = jnp.clip(C, 0, shape[0])
 
@@ -236,7 +237,8 @@ def CreateSplineCentroids(rng, params=def_params):
         rng_1, r0=r0, maxProtrudeFactor=maxProtrudeFactor, NGon=12
     )
     Npoints = jax.random.randint(rng_2, (1,), 3, 7)
-    starting_point = jax.random.randint(rng_3, (1,), 0, len(P[0]))
+    m = len(P[0])
+    starting_point = jax.random.randint(rng_3, (1,), m / 4, m / 4 * 3)
     select_points = jnp.arange(starting_point, starting_point + Npoints) % len(P[0])
     return (P[0][select_points], P[1][select_points])
 
@@ -368,15 +370,14 @@ def MakeAndSumCompositeBlob(rng, params=def_params, CentroidSpline=None):
         GapMask = PolyAndSplineCurve2Mask(
             GapPts, CxSize=RequiredImageSize[0], CySize=RequiredImageSize[1], tx=0, ty=0
         )
-        CompositeSplineMask = jnp.where(GapMask == 1.0, GapMask)
+        scar = jnp.where(GapMask == 1.0, GapMask)
 
     # make sure the final image is between 0 and 1
-    CompositeSplineMask = (CompositeSplineMask - CompositeSplineMask.min()) / (
-        CompositeSplineMask.max() - CompositeSplineMask.min()
-    )
+    if scar.sum() > 0:
+        scar = (scar - scar.min()) / (scar.max() - scar.min())
 
     res_dict = {}
-    res_dict["CompositeSplineMask"] = CompositeSplineMask
+    res_dict["CompositeSplineMask"] = scar
     res_dict["ScarBaseImages"] = ScarBaseImages
     res_dict["ScarBasePts"] = ScarBasePts
     res_dict["ScarBasePtsNorm"] = ScarBasePtsNorm
