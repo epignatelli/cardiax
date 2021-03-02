@@ -1,3 +1,6 @@
+# vscode
+.vscode/*
+
 # logs
 deepexcite/lightning_logs/
 deepexcite/experiments_log/*/events.*
