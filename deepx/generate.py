@@ -30,10 +30,8 @@ def random_rectangular_stimulus(
     rng: Key, shape: Shape, protocol: cardiax.stimulus.Protocol, modulus: float = 0.6
 ) -> cardiax.stimulus.Stimulus:
     rng_1, rng_2 = jax.random.split(rng)
-    xs = jax.random.randint(rng_1, (2,), 0, shape[0] // 3)
-    ys = jax.random.randint(rng_2, (2,), 0, shape[0] // 3)
-    centre = (xs[0], ys[0])
-    size = (xs[1], ys[1])
+    centre = jax.random.randint(rng_1, (2,), 0, shape[0])
+    size = jax.random.randint(rng_2, (2,), max(shape[0] // 100, 10), shape[0] // 3)
     return cardiax.stimulus.rectangular(shape, centre, size, modulus, protocol)
 
 
@@ -53,7 +51,7 @@ def random_triangular_stimulus(
     angle, coverage = jax.random.normal(rng_1, (2,))
     direction = jax.random.randint(rng_1, (1,), 0, 3)
     return cardiax.stimulus.triangular(
-        shape, direction, angle, coverage * 0.5, modulus, protocol
+        shape, direction, angle * 180, coverage * 0.5, modulus, protocol
     )
 
 
