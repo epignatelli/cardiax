@@ -43,7 +43,7 @@ def random_linear_stimulus(
     rng_1, rng_2 = jax.random.split(rng)
     direction = jax.random.randint(rng_1, (1,), 0, 3)
     coverage = jax.random.normal(rng_2, (1,))
-    return cardiax.stimulus.linear(shape, direction, coverage, modulus, protocol)
+    return cardiax.stimulus.linear(shape, direction, coverage * 0.5, modulus, protocol)
 
 
 def random_triangular_stimulus(
@@ -53,7 +53,7 @@ def random_triangular_stimulus(
     angle, coverage = jax.random.normal(rng_1, (2,))
     direction = jax.random.randint(rng_1, (1,), 0, 3)
     return cardiax.stimulus.triangular(
-        shape, direction, angle, coverage, modulus, protocol
+        shape, direction, angle, coverage * 0.5, modulus, protocol
     )
 
 

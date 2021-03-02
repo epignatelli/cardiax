@@ -1,4 +1,4 @@
-from typing import NamedTuple
+from typing import Any, Callable, NamedTuple
 import functools
 import matplotlib.pyplot as plt
 import jax
@@ -98,6 +98,13 @@ def step(state, t, params, diffusivity, stimuli, dt, dx):
     d_w = ((1 - p) * (1 - w) / params.tau_w_minus) - ((p * w) / params.tau_w_plus)
     d_u = del_u + j_ion
 
+    return State(
+        d_v[1:-1, 1:-1],
+        d_w[1:-1, 1:-1],
+        d_u[1:-1, 1:-1],
+        del_u[1:-1, 1:-1],
+        j_ion[1:-1, 1:-1],
+    )
     # euler update and unpadding
     v = state.v + d_v[1:-1, 1:-1] * dt
     w = state.w + d_w[1:-1, 1:-1] * dt
@@ -105,6 +112,14 @@ def step(state, t, params, diffusivity, stimuli, dt, dx):
     del_u = del_u[1:-1, 1:-1]
     j_ion = j_ion[1:-1, 1:-1]
     return State(v, w, u, del_u, j_ion)
+
+
+def euler(
+    f: Callable, x: jnp.ndarray, t: float, *f_args: Any, **integrator_kwargs: Any
+):
+    dt = integrator_kwargs.pop("dt")
+    grads = f(x, t, *f_args)
+    return jax.tree_multimap(lambda v, dv: jnp.add(v, dv * dt), x, grads)
 
 
 @functools.partial(jax.jit, static_argnums=1)
