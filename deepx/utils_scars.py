@@ -421,7 +421,7 @@ def blur_scar(scar, gaussian_size, sigma):
 
 
 def random_diffusivity_scar(rng, shape: Tuple[int, ...]):
-    rng_1, rng_2, rng_3, rng_4 = jax.random.split(rng, 4)
+    rng_1, rng_2, rng_3 = jax.random.split(rng, 3)
     params = def_params
     # replace size
     params["RequiredImageSize"] = shape
@@ -432,6 +432,6 @@ def random_diffusivity_scar(rng, shape: Tuple[int, ...]):
 
     # taper the edges
     blur_kerne_size = int(shape[0] * 0.1)  #  kernel size is 3% of the image size
-    blur_sigma = jax.random.normal(rng_4, (1,)) * shape[0] / 10
+    blur_sigma = jax.random.normal(rng_3, (1,)) * shape[0] / 10
     blurred_scar = blur_scar(scar, blur_kerne_size, blur_sigma)
     return jnp.array(1 - blurred_scar)
