@@ -51,7 +51,7 @@ def random_triangular_stimulus(
     angle, coverage = jax.random.normal(rng_1, (2,))
     direction = jax.random.randint(rng_1, (1,), 0, 3)
     return cardiax.stimulus.triangular(
-        shape, direction, angle * 180, coverage * 0.5, modulus, protocol
+        shape, direction, angle * 90, coverage * 0.5, modulus, protocol
     )
 
 
