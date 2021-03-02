@@ -34,7 +34,7 @@ be to convolve with a fixed sixe Gaussian (also implemented), but this doesn't c
 size of the resulting edge.
 """
 
-import json
+import logging
 import sys
 from typing import Tuple
 
@@ -42,7 +42,6 @@ import jax.numpy as jnp
 import numpy as np
 from scipy import interpolate
 from scipy.signal import convolve2d as conv2d
-from skimage.io import imsave
 
 def_params = {}
 def_params["maxProtrudeFactorCentroid"] = 0.2
@@ -436,54 +435,24 @@ def MakeAndSumCompositeBlob(params=def_params, CentroidSpline=None):
 def random_diffusivity_scar(
     shape: Tuple[int, ...],
     params: dict = def_params,
-    domain=(0.0001, 0.001),
 ):
     # replace size
     params["RequiredImageSize"] = shape
-
-    valid_scar = False
     CentroidSpline = CreateSplineCentroids(params)
-    nb_attempts = 0
 
     # Create individual blobs, scale them up and combine them
-    while not valid_scar:
+    while True:
         try:
             res_dict = MakeAndSumCompositeBlob(params, CentroidSpline)
 
             # taper the edges
-            (
-                SoftenedComposite,
-                avg_edge_size_pixel,
-                avg_edge_size_prop,
-                GaussShape,
-            ) = SoftenPolyAndSplineCurve(
+            (scar, _, _, _,) = SoftenPolyAndSplineCurve(
                 res_dict["CompositeSplineMask"],
                 GaussShape=None,
                 GaussSigma=params["GaussSigma"],
                 AvgEdgeSize=params["RequiredAvgEdgeSize"],
             )
+            return jnp.array(1 - scar)
 
-            valid_scar = True
-
-        except ValueError as err:
-            print(
-                "Attempt at generating random scar map failed because of a ValueError. Trying again"
-            )
-            valid_scar = False
-            nb_attempts += 1
-
-        except:
-            print(
-                "Attempt at generating random scar map failed because of an unexpected error."
-            )
-            print(f"The error is {sys.exc_info()[0]}. Trying again now.")
-            valid_scar = False
-            nb_attempts += 1
-        if nb_attempts > 5:
-            break
-
-    # convert to jax array
-    SoftenedComposite = jnp.array(1 - SoftenedComposite)
-
-    # returned as a numpy array
-    return SoftenedComposite
+        except ValueError as e:
+            logging.warning(e)
