@@ -91,40 +91,11 @@ def drawpolyintoemptycanvas(CS, x, y, tx, ty):
     C = tx + x
     R = np.clip(R, 0, CS[1])
     C = np.clip(C, 0, CS[0])
-    # if np.any(R < 0) or np.any(R > CS[1]):
-    #     raise ValueError("Polygon row (y) coordinates out of lower/upper bound")
-
-    # if np.any(C < 0) or np.any(C > CS[0]):
-    #     raise ValueError("Polygon column (x) coordinates out of lower/upper bound")
 
     rr, cc = polygon(R, C)
     img[rr, cc] = 1
 
     return img
-
-
-def addnoise(x, swn=0.1, ssn=0.1, gks=0.5, rectify=False):
-    """
-    Adds some white and structured noise; wn is non-Gaussian
-    Usage: addnoise(x,swn,ssn,rectify)
-    swn: white noise variance (it is zero mean by default)
-    ssn: coloured noise, filtered by a 3x3 Gaussian kernel, var:0.25 (default)
-         kernel size is scaled according to spatial sd of Gaussian kernel
-    gks: Gaussian kernel sigma for the correlated noise
-    rectify: Boolean - says whether or not image is rectified to remove negative values
-    """
-    m, n = x.shape
-    wn = swn * np.random.randn(m, n)
-    gksize = (6 * gks, 6 * gks)
-    g2 = makegauss2D(shape=gksize, sigma=gks)
-    sn = conv2d(ssn * np.random.randn(m, n), g2, "same")
-
-    y = x + wn + sn
-
-    if rectify:
-        y = y * (y > 0)
-
-    return y
 
 
 def makePolyAndSplineCurve(r0=30, maxProtrudeFactor=0.3, NGon=11, NSplinePts=100):
