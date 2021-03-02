@@ -89,11 +89,13 @@ def drawpolyintoemptycanvas(CS, x, y, tx, ty):
 
     R = CS[1] - (ty + y)
     C = tx + x
-    if np.any(R < 0) or np.any(R > CS[1]):
-        raise ValueError("Polygon row (y) coordinates out of lower/upper bound")
+    R = np.clip(R, 0, CS[1])
+    C = np.clip(C, 0, CS[0])
+    # if np.any(R < 0) or np.any(R > CS[1]):
+    #     raise ValueError("Polygon row (y) coordinates out of lower/upper bound")
 
-    if np.any(C < 0) or np.any(C > CS[0]):
-        raise ValueError("Polygon column (x) coordinates out of lower/upper bound")
+    # if np.any(C < 0) or np.any(C > CS[0]):
+    #     raise ValueError("Polygon column (x) coordinates out of lower/upper bound")
 
     rr, cc = polygon(R, C)
     img[rr, cc] = 1
