@@ -409,6 +409,10 @@ def MakeAndSumCompositeBlob(rng, params=def_params, CentroidSpline=None):
     return res_dict
 
 
+def random_spline(rng, params, centroids):
+    return MakeAndSumCompositeBlob(rng, params, centroids)["CompositeSplineMask"]
+
+
 def blur_scar(scar, gaussian_size, sigma):
     # create 2D filter, convolve and get avg edge size
     kernel = makegauss2D(shape=(gaussian_size, gaussian_size), sigma=sigma)
@@ -416,22 +420,18 @@ def blur_scar(scar, gaussian_size, sigma):
     return blurred_scar
 
 
-def random_diffusivity_scar(
-    rng,
-    shape: Tuple[int, ...],
-    params: dict = def_params,
-):
-    rng_1, rng_2 = jax.random.split(rng)
+def random_diffusivity_scar(rng, shape: Tuple[int, ...]):
+    rng_1, rng_2, rng_3, rng_4 = jax.random.split(rng, 4)
+    params = def_params
     # replace size
     params["RequiredImageSize"] = shape
-    CentroidSpline = CreateSplineCentroids(rng_1, params)
+    centroids = CreateSplineCentroids(rng_1, params)
 
     # Create individual blobs, scale them up and combine them
-    res_dict = MakeAndSumCompositeBlob(rng_2, params, CentroidSpline)
+    scar = random_spline(rng_2, params, centroids)
 
     # taper the edges
-    scar = res_dict["CompositeSplineMask"]
-    kernel_size = params["RequiredAvgEdgeSize"]
-    sigma = params["GaussSigma"]
-    blurred_scar = blur_scar(scar, kernel_size, sigma)
+    blur_kerne_size = int(shape[0] * 0.1)  #  kernel size is 3% of the image size
+    blur_sigma = jax.random.normal(rng_4, (1,)) * shape[0] / 10
+    blurred_scar = blur_scar(scar, blur_kerne_size, blur_sigma)
     return jnp.array(1 - blurred_scar)
