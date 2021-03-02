@@ -76,19 +76,19 @@ def makegauss2D(shape=(3, 3), sigma=0.5):
     return h
 
 
-def drawpolyintoemptycanvas(CS, x, y, tx, ty):
+def drawpolyintoemptycanvas(shape, x, y, tx, ty):
     """
     Purpose is to draw a polygon into an empty canvas (image)
     for the purpose of subseuqntly combining it with an existing canvas
     The offsets can be chosen so that the polygon does not exceed
     the boundaries of the polygon
     """
-    img = jnp.zeros(CS, dtype=float)
+    img = jnp.zeros(shape, dtype=float)
 
-    R = CS[1] - (ty + y)
+    R = shape[1] - (ty + y)
     C = tx + x
-    R = jnp.clip(R, 0, CS[1])
-    C = jnp.clip(C, 0, CS[0])
+    R = jnp.clip(R, 0, shape[1])
+    C = jnp.clip(C, 0, shape[0])
 
     rr, cc = polygon(R, C)
     img = img.at[rr, cc].set(1)
@@ -273,7 +273,7 @@ def MakeAndSumCompositeBlob(rng, params=def_params, CentroidSpline=None):
     maxProtrudeFactor = params["maxProtrudeFactor"]
     r0 = params["r0"]
     ScarScaleFactor = params["ScarScaleFactor"]
-    RequiredImageSize = params["RequiredImageSize"]
+    RequiredImageSize = shape = params["RequiredImageSize"]
     CONSERVATIVE_CENTROID = params["CONSERVATIVE_CENTROID"]
     ADD_GAP = params["ADD_GAP"]
     GapFactor = params["GapFactor"]
@@ -339,48 +339,30 @@ def MakeAndSumCompositeBlob(rng, params=def_params, CentroidSpline=None):
             (maxFieldX - maxExtension) * x + halfExtension,
             (maxFieldY - maxExtension) * y + halfExtension,
         )
-    # print(GlobalCentroid)
 
-    if (maxFieldX > RequiredImageSize[0]) | (maxFieldY > RequiredImageSize[1]):
-        raise Exception("Scaling down not implemented yet!")  # TODO!
-
-    else:
-        FieldImageRatio = (
-            maxFieldX / RequiredImageSize[0],
-            maxFieldY / RequiredImageSize[1],
-        )
-        for i in range(nBlobs):
-            for j in range(2):
-                ScarBasePts[i][j] += GlobalCentroid[j]
-                ScarBasePts[i][j] /= FieldImageRatio[j]
-                ScarBasePts[i][j] = ScarBasePts[i][j] * (ScarBasePts[i][j] > 0)
-                # P[j] += GlobalCentroid[j]
-                # P[j] *= ImageFieldRatio[j]
-        if ADD_GAP:
-            for j in range(2):
-                GapPts[j] += GlobalCentroid[j]
-                GapPts[j] /= FieldImageRatio[j]
-                GapPts[j] = GapPts[j] * (GapPts[j] > 0)
+    FieldImageRatio = (
+        maxFieldX / RequiredImageSize[0],
+        maxFieldY / RequiredImageSize[1],
+    )
+    for i in range(nBlobs):
+        for j in range(2):
+            ScarBasePts[i][j] += GlobalCentroid[j]
+            ScarBasePts[i][j] /= FieldImageRatio[j]
+            ScarBasePts[i][j] = ScarBasePts[i][j] * (ScarBasePts[i][j] > 0)
+    if ADD_GAP:
+        for j in range(2):
+            GapPts[j] += GlobalCentroid[j]
+            GapPts[j] /= FieldImageRatio[j]
+            GapPts[j] = GapPts[j] * (GapPts[j] > 0)
 
     # create images
-
+    scar = jnp.zeros(shape)
     for i in range(nBlobs):
-        SplineMask = PolyAndSplineCurve2Mask(
-            ScarBasePts[i],
-            CxSize=RequiredImageSize[0],
-            CySize=RequiredImageSize[1],
-            tx=0,
-            ty=0,
-        )  # GlobalCentroid[j])
-        ScarBaseImages.append(SplineMask)
-        # sum them all up as an OR operation
-        if i == 0:
-            CompositeSplineMask = SplineMask.copy()
-        else:
-            CompositeSplineMask += SplineMask
-            CompositeSplineMask = jnp.where(
-                CompositeSplineMask > 1.0, 1.0, CompositeSplineMask
-            )
+        x = PolyAndSplineCurve2Mask(
+            ScarBasePts[i], CxSize=shape[0], CySize=shape[1], tx=0, ty=0
+        )
+        scar += x
+    scar = jnp.clip(scar, a_max=1.0)
 
     if ADD_GAP:
         GapMask = PolyAndSplineCurve2Mask(
@@ -421,10 +403,11 @@ def blur_scar(scar, gaussian_size, sigma):
 
 
 def random_diffusivity_scar(rng, shape: Tuple[int, ...]):
-    rng_1, rng_2, rng_3 = jax.random.split(rng, 3)
+    rng_1, rng_2, rng_3, rng_4 = jax.random.split(rng, 4)
     params = def_params
     # replace size
     params["RequiredImageSize"] = shape
+    # params["ScarScaleFactor"] = jax.random.randint(rng_3, (1,), 1, 8) / 10
     centroids = CreateSplineCentroids(rng_1, params)
 
     # Create individual blobs, scale them up and combine them
@@ -432,6 +415,10 @@ def random_diffusivity_scar(rng, shape: Tuple[int, ...]):
 
     # taper the edges
     blur_kerne_size = int(shape[0] * 0.1)  #  kernel size is 3% of the image size
-    blur_sigma = jax.random.normal(rng_3, (1,)) * shape[0] / 10
-    blurred_scar = blur_scar(scar, blur_kerne_size, blur_sigma)
-    return jnp.array(1 - blurred_scar)
+    blur_sigma = jax.random.normal(rng_4, (1,)) * shape[0] / 10
+    scar = blur_scar(scar, blur_kerne_size, blur_sigma)
+    return jnp.array(1 - scar)
+
+
+if __name__ == "__main__":
+    random_diffusivity_scar(jax.random.PRNGKey(4), (256, 256))

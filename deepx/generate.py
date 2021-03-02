@@ -9,6 +9,7 @@ from . import utils_scars as ipu
 
 Shape = Tuple[int, ...]
 Key = jnp.ndarray
+Domain = Tuple[int, int]
 
 
 def random_protocol(
@@ -98,14 +99,18 @@ def random_gaussian_mixture(rng: Key, shape: Shape, n_gaussians: int) -> jnp.nda
 
 
 def random_diffusivity(
-    rng: Key,
-    shape: Shape,
-    domain=(0.0001, 0.001),
+    rng: Key, shape: Shape, domain: Domain = (0.0001, 0.001), coverage: float = 0.4
 ) -> jnp.ndarray:
     c = ipu.random_diffusivity_scar(rng, shape)
     a, b = c.min(), c.max()
     y, z = domain[0], domain[1]
     return (c - a) * (z - y) / (b - a) + y
+
+
+def rng_sequence(start_seed=0):
+    rng = jax.random.PRNGKey(start_seed)
+    while True:
+        yield jax.random.split(rng)[0]
 
 
 def random_sequence(
