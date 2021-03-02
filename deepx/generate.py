@@ -5,7 +5,7 @@ import cardiax
 import jax
 import jax.numpy as jnp
 
-from deepx import utils_scars as ipu
+from . import utils_scars as ipu
 
 Shape = Tuple[int, ...]
 Key = jnp.ndarray
