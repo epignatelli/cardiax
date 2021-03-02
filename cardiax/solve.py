@@ -37,7 +37,7 @@ def forward(
 
     integrator = integrator.lower()
     integrator = step_euler if integrator == "euler" else step_rk45
-    f = functools.partial(_forward, integrator=integrator)
+    f = _forward_euler
 
     states = []
     for i in range(len(checkpoints) - 1):
@@ -78,7 +78,7 @@ def init(shape):
 
 
 @jax.jit
-def step(state, t, params, diffusivity, stimuli, dt, dx):
+def step(state, t, params, diffusivity, stimuli, dx):
     # neumann boundary conditions
     v = jnp.pad(state.v, 1, mode="edge")
     w = jnp.pad(state.w, 1, mode="edge")
@@ -129,12 +129,12 @@ def step(state, t, params, diffusivity, stimuli, dt, dx):
 
 
 def step_euler(state, t, params, diffusivity, stimuli, dt, dx):
-    grads = step(state, t, params, diffusivity, stimuli, dt, dx)
+    grads = step(state, t, params, diffusivity, stimuli, dx)
     return jax.tree_multimap(lambda v, dv: jnp.add(v, dv * dt), state, grads)
 
 
 def step_rk45(state, t, params, diffusivity, stimuli, dt, dx):
-    return ode.odeint(step, state, t, params, diffusivity, stimuli, dt, dx)
+    return ode.odeint(step, state, t, params, diffusivity, stimuli, dx)
 
 
 @functools.partial(jax.jit, static_argnums=1)
@@ -192,13 +192,13 @@ def stimulate(t, X, stimuli):
     return jnp.where(stimulated != 0, stimulated, X)
 
 
-@functools.partial(jax.jit, static_argnums=0)
-def _forward(integrator, state, t, t_end, params, diffusivity, stimuli, dt, dx):
+@jax.jit
+def _forward_euler(state, t, t_end, params, diffusivity, stimuli, dt, dx):
     # iterate
     state = jax.lax.fori_loop(
         t,
         t_end,
-        lambda i, state: integrator(state, i, params, diffusivity, stimuli, dt, dx),
+        lambda i, state: step_euler(state, i, params, diffusivity, stimuli, dt, dx),
         init_val=state,
     )
     return state
