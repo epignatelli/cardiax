@@ -36,8 +36,7 @@ def forward(
         plt.show()
 
     integrator = integrator.lower()
-    integrator = step_euler if integrator == "euler" else step_rk45
-    f = _forward_euler
+    f = _forward_euler if integrator == "euler" else _forward_rk
 
     states = []
     for i in range(len(checkpoints) - 1):
@@ -52,8 +51,8 @@ def forward(
         )
         state = f(
             state,
-            checkpoints[i],
-            checkpoints[i + 1],
+            float(checkpoints[i]),
+            float(checkpoints[i + 1]),
             cell_parameters,
             diffusivity,
             stimuli,
@@ -202,3 +201,16 @@ def _forward_euler(state, t, t_end, params, diffusivity, stimuli, dt, dx):
         init_val=state,
     )
     return state
+
+
+@functools.partial(jax.jit, static_argnums=(1, 2))
+def _forward_rk(state, t, t_end, params, diffusivity, stimuli, dt, dx):
+    return ode.odeint(
+        step,
+        state,
+        jnp.arange(t, t_end).astype(float),
+        params,
+        diffusivity,
+        stimuli,
+        dx,
+    )
