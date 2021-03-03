@@ -187,7 +187,8 @@ def forward(
 
     f = integrator
     if f == TimeIntegrator.DORMANDPRINCE:
-        states = f(state, checkpoints, params, diffusivity, stimuli, dt, dx)
+        ts = checkpoints.astype(float)
+        states = f(state, ts, params, diffusivity, stimuli, dt, dx)
         if plot_while:
             for state in states:
                 plot.plot_state(state)
