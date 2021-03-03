@@ -195,7 +195,7 @@ def _forward_rk(state, t, t_end, params, diffusivity, stimuli, dt, dx):
     return ode.odeint(
         step,
         state,
-        jnp.array(t, t_end, dtype=float),
+        jnp.array((t, t_end), dtype=float),
         params,
         diffusivity,
         stimuli,
