@@ -119,7 +119,7 @@ def step_euler(state, t, params, diffusivity, stimuli, dt, dx):
     return jax.tree_multimap(lambda v, dv: jnp.add(v, dv * dt), state, grads)
 
 
-def step_rk45(state, t, params, diffusivity, stimuli, dt, dx):
+def step_rk(state, t, params, diffusivity, stimuli, dt, dx):
     return ode.odeint(step, state, t, params, diffusivity, stimuli, dx)
 
 
@@ -195,9 +195,45 @@ def _forward_rk(state, t, t_end, params, diffusivity, stimuli, dt, dx):
     return ode.odeint(
         step,
         state,
-        jnp.arange(t, t_end).astype(float),
+        jnp.array(t, t_end, dtype=float),
         params,
         diffusivity,
         stimuli,
         dx,
     )
+
+
+def _forward_dormandprince(y0, ts, rtol=1.4e-8, atol=1.4e-8, mxstep=jnp.inf, *args):
+    func_ = lambda y, t: step(y, t, *args)
+
+    def scan_fun(carry, target_t):
+        def cond_fun(state):
+            i, _, _, t, dt, _, _ = state
+            return (t < target_t) & (i < mxstep) & (dt > 0)
+
+        def body_fun(state):
+            i, y, f, t, dt, last_t, interp_coeff = state
+            next_y, next_f, next_y_error, k = ode.runge_kutta_step(func_, y, f, t, dt)
+            next_t = t + dt
+            error_ratios = ode.error_ratio(next_y_error, rtol, atol, y, next_y)
+            new_interp_coeff = ode.interp_fit_dopri(y, next_y, k, dt)
+            dt = ode.optimal_step_size(dt, error_ratios)
+
+            new = [i + 1, next_y, next_f, next_t, dt, t, new_interp_coeff]
+            old = [i + 1, y, f, t, dt, last_t, interp_coeff]
+            return map(
+                functools.partial(jnp.where, jnp.all(error_ratios <= 1.0)), new, old
+            )
+
+        _, *carry = jax.lax.while_loop(cond_fun, body_fun, [0] + carry)
+        _, _, t, _, last_t, interp_coeff = carry
+        relative_output_time = (target_t - last_t) / (t - last_t)
+        y_target = jnp.polyval(interp_coeff, relative_output_time)
+        return carry, y_target
+
+    f0 = func_(y0, ts[0])
+    dt = ode.initial_step_size(func_, ts[0], y0, 4, rtol, atol, f0)
+    interp_coeff = jnp.array([y0] * 5)
+    init_carry = [y0, f0, ts[0], dt, ts[0], interp_coeff]
+    _, ys = jax.lax.scan(scan_fun, init_carry, ts[1:])
+    return jnp.concatenate((y0[None], ys))
