@@ -111,7 +111,7 @@ def _forward_heun(state, t, t_end, params, diffusivity, stimuli, dt, dx):
     return state
 
 
-@functools.partial(jax.jit, static_argnums=(1, 2))
+@jax.jit
 def _forward_dormandprince(state, ts, params, diffusivity, stimuli, dt, dx):
     return ode.odeint(
         step,
