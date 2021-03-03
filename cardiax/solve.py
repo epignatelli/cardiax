@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Any, Callable, NamedTuple
 import functools
 import matplotlib.pyplot as plt
@@ -11,57 +12,6 @@ class State(NamedTuple):
     v: jnp.ndarray
     w: jnp.ndarray
     u: jnp.ndarray
-
-
-def forward(
-    state,
-    checkpoints,
-    cell_parameters,
-    diffusivity,
-    stimuli,
-    dt,
-    dx,
-    integrator="euler",
-    plot_while=False,
-):
-    if plot_while:
-        fig, ax = plot.plot_stimuli(stimuli)
-        fig.suptitle("Stimuli")
-        fig, ax = plot.plot_diffusivity(diffusivity)
-        fig.suptitle("Diffusivity")
-        fig, ax = plot.plot_state(state)
-        fig.suptitle("Initial state")
-        plt.show()
-
-    integrator = integrator.lower()
-    f = _forward_euler if integrator == "euler" else _forward_rk
-
-    states = []
-    for i in range(len(checkpoints) - 1):
-        print(
-            "Solving at: %dms/%dms\t\t with %d passages"
-            % (
-                checkpoints[i + 1] * dt,
-                checkpoints[-1] * dt,
-                checkpoints[i + 1] - checkpoints[i],
-            ),
-            end="\r",
-        )
-        state = f(
-            state,
-            float(checkpoints[i]),
-            float(checkpoints[i + 1]),
-            cell_parameters,
-            diffusivity,
-            stimuli,
-            dt,
-            dx,
-        )
-        if plot_while:
-            plot.plot_state(state)
-            plt.show()
-        states.append(state)
-    return states
 
 
 @functools.partial(jax.jit, static_argnums=0)
@@ -119,8 +69,113 @@ def step_euler(state, t, params, diffusivity, stimuli, dt, dx):
     return jax.tree_multimap(lambda v, dv: jnp.add(v, dv * dt), state, grads)
 
 
+def step_heun(state, t, params, diffusivity, stimuli, dt, dx):
+    def euler(y, dy, h):
+        return jax.tree_multimap(lambda v, dv: jnp.add(v, dv * h), y, dy)
+
+    d_state = step(state, t, params, diffusivity, stimuli, dx)
+    new_state = euler(state, d_state, dt)
+    d_new_state = step(new_state, t, params, diffusivity, stimuli, dx)
+    new_state = euler(
+        state,
+        jax.tree_multimap(lambda x, y: jnp.add(x, y), d_state, d_new_state),
+        dt * 0.5,
+    )
+    return new_state
+
+
 def step_rk(state, t, params, diffusivity, stimuli, dt, dx):
     return ode.odeint(step, state, t, params, diffusivity, stimuli, dx)
+
+
+@jax.jit
+def _forward_euler(state, t, t_end, params, diffusivity, stimuli, dt, dx):
+    state = jax.lax.fori_loop(
+        t,
+        t_end,
+        lambda i, state: step_euler(state, i, params, diffusivity, stimuli, dt, dx),
+        init_val=state,
+    )
+    return state
+
+
+@jax.jit
+def _forward_heun(state, t, t_end, params, diffusivity, stimuli, dt, dx):
+    state = jax.lax.fori_loop(
+        t,
+        t_end,
+        lambda i, state: step_heun(state, i, params, diffusivity, stimuli, dt, dx),
+        init_val=state,
+    )
+    return state
+
+
+@functools.partial(jax.jit, static_argnums=(1, 2))
+def _forward_rk(state, t, t_end, params, diffusivity, stimuli, dt, dx):
+    return ode.odeint(
+        step,
+        state,
+        jnp.array((t, t_end), dtype=float),
+        params,
+        diffusivity,
+        stimuli,
+        dx,
+    )
+
+
+class TimeIntegrator(Enum):
+    EULER = _forward_euler
+    HEUN = _forward_heun
+    RK = _forward_rk
+
+
+def forward(
+    state,
+    checkpoints,
+    cell_parameters,
+    diffusivity,
+    stimuli,
+    dt,
+    dx,
+    integrator=TimeIntegrator.EULER,
+    plot_while=False,
+):
+    if plot_while:
+        fig, ax = plot.plot_stimuli(stimuli)
+        fig.suptitle("Stimuli")
+        fig, ax = plot.plot_diffusivity(diffusivity)
+        fig.suptitle("Diffusivity")
+        fig, ax = plot.plot_state(state)
+        fig.suptitle("Initial state")
+        plt.show()
+
+    f = integrator
+    states = []
+    for i in range(len(checkpoints) - 1):
+        print(
+            "Solving at: %dms/%dms\t\t with %d passages"
+            % (
+                checkpoints[i + 1] * dt,
+                checkpoints[-1] * dt,
+                checkpoints[i + 1] - checkpoints[i],
+            ),
+            end="\r",
+        )
+        state = f(
+            state,
+            float(checkpoints[i]),
+            float(checkpoints[i + 1]),
+            cell_parameters,
+            diffusivity,
+            stimuli,
+            dt,
+            dx,
+        )
+        if plot_while:
+            plot.plot_state(state)
+            plt.show()
+        states.append(state)
+    return states
 
 
 @functools.partial(jax.jit, static_argnums=1)
@@ -156,12 +211,6 @@ def gradient(a, axis):
 
 
 @jax.jit
-def neumann(X):
-    X = jnp.pad(X, 1, mode="edge")
-    return X
-
-
-@jax.jit
 def stimulate(t, X, stimuli):
     stimulated = jnp.zeros_like(X)
     for stimulus in stimuli:
@@ -176,64 +225,3 @@ def stimulate(t, X, stimuli):
         stimulated = jnp.where(stimulus.field * (active), stimulus.field, stimulated)
     # set the field to the stimulus
     return jnp.where(stimulated != 0, stimulated, X)
-
-
-@jax.jit
-def _forward_euler(state, t, t_end, params, diffusivity, stimuli, dt, dx):
-    # iterate
-    state = jax.lax.fori_loop(
-        t,
-        t_end,
-        lambda i, state: step_euler(state, i, params, diffusivity, stimuli, dt, dx),
-        init_val=state,
-    )
-    return state
-
-
-@functools.partial(jax.jit, static_argnums=(1, 2))
-def _forward_rk(state, t, t_end, params, diffusivity, stimuli, dt, dx):
-    return ode.odeint(
-        step,
-        state,
-        jnp.array((t, t_end), dtype=float),
-        params,
-        diffusivity,
-        stimuli,
-        dx,
-    )
-
-
-def _forward_dormandprince(y0, ts, rtol=1.4e-8, atol=1.4e-8, mxstep=jnp.inf, *args):
-    func_ = lambda y, t: step(y, t, *args)
-
-    def scan_fun(carry, target_t):
-        def cond_fun(state):
-            i, _, _, t, dt, _, _ = state
-            return (t < target_t) & (i < mxstep) & (dt > 0)
-
-        def body_fun(state):
-            i, y, f, t, dt, last_t, interp_coeff = state
-            next_y, next_f, next_y_error, k = ode.runge_kutta_step(func_, y, f, t, dt)
-            next_t = t + dt
-            error_ratios = ode.error_ratio(next_y_error, rtol, atol, y, next_y)
-            new_interp_coeff = ode.interp_fit_dopri(y, next_y, k, dt)
-            dt = ode.optimal_step_size(dt, error_ratios)
-
-            new = [i + 1, next_y, next_f, next_t, dt, t, new_interp_coeff]
-            old = [i + 1, y, f, t, dt, last_t, interp_coeff]
-            return map(
-                functools.partial(jnp.where, jnp.all(error_ratios <= 1.0)), new, old
-            )
-
-        _, *carry = jax.lax.while_loop(cond_fun, body_fun, [0] + carry)
-        _, _, t, _, last_t, interp_coeff = carry
-        relative_output_time = (target_t - last_t) / (t - last_t)
-        y_target = jnp.polyval(interp_coeff, relative_output_time)
-        return carry, y_target
-
-    f0 = func_(y0, ts[0])
-    dt = ode.initial_step_size(func_, ts[0], y0, 4, rtol, atol, f0)
-    interp_coeff = jnp.array([y0] * 5)
-    init_carry = [y0, f0, ts[0], dt, ts[0], interp_coeff]
-    _, ys = jax.lax.scan(scan_fun, init_carry, ts[1:])
-    return jnp.concatenate((y0[None], ys))
