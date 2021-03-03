@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 from jax.experimental import ode
 from . import plot
+from . import convert
 
 
 class State(NamedTuple):
@@ -127,6 +128,41 @@ class TimeIntegrator(Enum):
     EULER = _forward_euler
     HEUN = _forward_heun
     RK = _forward_rk
+
+
+def forward_dimensional(
+    tissue_size,
+    final_time,
+    ms_step,
+    paramset,
+    diffusivity,
+    stimuli,
+    dt,
+    dx,
+    integrator=TimeIntegrator.EULER,
+    plot_while=False,
+):
+    shape = convert.realsize_to_shape(tissue_size, dx)
+    start = 0
+    stop = convert.ms_to_units(final_time, dt)
+    step = convert.ms_to_units(ms_step, dt)
+
+    assert shape == diffusivity.shape
+    assert all([s.field.shape == shape for s in stimuli])
+
+    state = init(shape)
+    checkpoints = jnp.arange(start, stop, step)
+    return forward(
+        state,
+        checkpoints,
+        paramset,
+        diffusivity,
+        stimuli,
+        dt,
+        dx,
+        integrator,
+        plot_while,
+    )
 
 
 def forward(
