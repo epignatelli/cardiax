@@ -32,7 +32,11 @@ def plot_stimuli(stimuli, **kwargs):
 def plot_diffusivity(diff, **kwargs):
     fig, ax = plt.subplots(1, 1, figsize=(kwargs.pop("figsize", (25, 5))))
     im = ax.imshow(diff, cmap="gray")
-    plt.colorbar(im, ax=ax)
+    ax.set_title("Diffusivity map")
+    ax.set_xlabel("x [cm]")
+    ax.set_ylabel("y [cm]")
+    clb = plt.colorbar(im, ax=ax)
+    clb.ax.set_title("[cm^2/ms]")
     return fig, ax
 
 
