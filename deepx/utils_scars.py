@@ -342,6 +342,7 @@ def MakeAndSumCompositeBlob(rng, params=def_params, CentroidSpline=None):
             (maxFieldY - maxExtension) * y + halfExtension,
         )
 
+    print(GlobalCentroid)
     FieldImageRatio = (
         maxFieldX / RequiredImageSize[0],
         maxFieldY / RequiredImageSize[1],
@@ -373,10 +374,11 @@ def MakeAndSumCompositeBlob(rng, params=def_params, CentroidSpline=None):
         scar = jnp.where(GapMask == 1.0, GapMask)
 
     # make sure the final image is between 0 and 1
-    if scar.sum() > 0:
+    if scar.max() > scar.min():
         scar = (scar - scar.min()) / (scar.max() - scar.min())
     else:
         scar = jnp.zeros(shape)
+        scar[shape[0]//2, shape[1]//2] = 1.
 
     res_dict = {}
     res_dict["CompositeSplineMask"] = scar
