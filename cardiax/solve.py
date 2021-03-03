@@ -112,11 +112,11 @@ def _forward_heun(state, t, t_end, params, diffusivity, stimuli, dt, dx):
 
 
 @functools.partial(jax.jit, static_argnums=(1, 2))
-def _forward_rk(state, t, t_end, params, diffusivity, stimuli, dt, dx):
+def _forward_dormandprince(state, ts, params, diffusivity, stimuli, dt, dx):
     return ode.odeint(
         step,
         state,
-        jnp.array((t, t_end), dtype=float),
+        ts,
         params,
         diffusivity,
         stimuli,
@@ -127,14 +127,14 @@ def _forward_rk(state, t, t_end, params, diffusivity, stimuli, dt, dx):
 class TimeIntegrator(Enum):
     EULER = _forward_euler
     HEUN = _forward_heun
-    RK = _forward_rk
+    DORMANDPRINCE = _forward_dormandprince
 
 
 def forward_dimensional(
     tissue_size,
     final_time,
     ms_step,
-    paramset,
+    params,
     diffusivity,
     stimuli,
     dt,
@@ -155,7 +155,7 @@ def forward_dimensional(
     return forward(
         state,
         checkpoints,
-        paramset,
+        params,
         diffusivity,
         stimuli,
         dt,
@@ -168,7 +168,7 @@ def forward_dimensional(
 def forward(
     state,
     checkpoints,
-    cell_parameters,
+    params,
     diffusivity,
     stimuli,
     dt,
@@ -186,6 +186,13 @@ def forward(
         plt.show()
 
     f = integrator
+    if f == TimeIntegrator.DORMANDPRINCE:
+        states = f(state, checkpoints, params, diffusivity, stimuli, dt, dx)
+        if plot_while:
+            for state in states:
+                plot.plot_state(state)
+        return states
+
     states = []
     for i in range(len(checkpoints) - 1):
         print(
@@ -201,7 +208,7 @@ def forward(
             state,
             float(checkpoints[i]),
             float(checkpoints[i + 1]),
-            cell_parameters,
+            params,
             diffusivity,
             stimuli,
             dt,
