@@ -20,6 +20,12 @@ def diffusivity_to_units(d, dt):
     return d / dt
 
 
+def diffusivity_rescale(c, domain):
+    a, b = c.min(), c.max()
+    y, z = domain[0], domain[1]
+    return (c - a) * (z - y) / (b - a) + y
+
+
 def realsize_to_shape(field, dx):
     return (int(field[0] / dx), int(field[1] / dx))
 
@@ -39,7 +45,7 @@ def units_to_cm(value, dx):
 def ms_to_units(value, dt):
     return int(value / dt)
 
-    
+
 def units_to_ms(value, dt):
     return value * dt
 
@@ -59,4 +65,3 @@ def u_to_V(u, V0=-85, Vfi=15):
 
 def V_to_u(V, V0=-85, Vfi=15):
     return (V - V0) / (Vfi - V0)
-    
