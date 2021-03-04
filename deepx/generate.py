@@ -57,7 +57,7 @@ def random_triangular_stimulus(
 
 
 def random_stimulus(
-    rng: Key, shape: Shape, min_start: int = 0
+    rng: Key, shape: Shape, max_start: int = 0
 ) -> cardiax.stimulus.Stimulus:
     stimuli_fn = (
         random_rectangular_stimulus,
@@ -65,7 +65,7 @@ def random_stimulus(
         random_linear_stimulus,
     )
     rng_1, rng_2, rng_3, rng_4 = jax.random.split(rng, 4)
-    protocol = random_protocol(rng_1, min_start=min_start)
+    protocol = random_protocol(rng_1, max_start=max_start)
     modulus = 20.0
     stimulus_fn = partial(
         stimuli_fn[jax.random.choice(rng_3, jnp.arange(0, len(stimuli_fn)))],
@@ -121,14 +121,14 @@ def random_sequence(
     step: int = 1,
     dt: float = 0.01,
     dx: float = 0.01,
-    reshape: Shape = (256, 256),
+    reshape: Shape = None,
     use_memory: bool = False,
 ):
     # generate random stimuli
     rngs = jax.random.split(rng, n_stimuli)
-    min_start = jnp.arange(1, stop, 400 * (n_stimuli - 1))
+    max_start = jnp.arange(1, stop, 400 * (n_stimuli - 1))
     stimuli = [
-        random_stimulus(rngs[i], shape, min_start=min_start[i])
+        random_stimulus(rngs[i], shape, max_start=max_start[i])
         for i in range(n_stimuli)
     ]
 
@@ -165,14 +165,6 @@ def sequence(
 ):
     # output shape
     shape = reshape if reshape is not None else diffusivity.shape
-
-    # check shapes
-    for s in stimuli:
-        assert (
-            diffusivity.shape == s.field.shape
-        ), "Inconsistent stimulus shapes {} and diffusivity {}".format(
-            diffusivity.shape, s.field.shape
-        )
 
     # checkpoints
     checkpoints = jnp.arange(int(start), int(stop), int(step))
@@ -219,7 +211,7 @@ def sequence(
             dx,
         )
         if use_memory:
-            states.append(cardiax.io.imresize(state, shape))
+            states.append(cardiax.io.imresize(jnp.arrray(state), shape))
         else:
             cardiax.io.add_state(states_dset, state, i, shape=(len(state), *shape))
 
