@@ -120,9 +120,5 @@ def imresize(a, size):
     Args:
         a (jnp.ndarray): 2D or 3D array
     """
-    assert len(size) == len(
-        a.shape
-    ), "The length of the target size must match the number of dimensions in a, got {} and {}".format(
-        a.shape, size
-    )
+    out_shape = a.shape._replace()
     return jax.image.resize(a, size, "bilinear")
