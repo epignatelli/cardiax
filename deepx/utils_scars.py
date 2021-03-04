@@ -238,7 +238,7 @@ def CreateSplineCentroids(rng, params=def_params):
     )
     Npoints = jax.random.randint(rng_2, (1,), 3, 7)
     m = len(P[0])
-    starting_point = jax.random.randint(rng_3, (1,), m / 4, m / 4 * 3)
+    starting_point = jax.random.randint(rng_3, (1,), 0, m) #m / 4, m / 4 * 3)
     select_points = jnp.arange(starting_point, starting_point + Npoints) % len(P[0])
     return (P[0][select_points], P[1][select_points])
 
@@ -342,7 +342,6 @@ def MakeAndSumCompositeBlob(rng, params=def_params, CentroidSpline=None):
             (maxFieldY - maxExtension) * y + halfExtension,
         )
 
-    print(GlobalCentroid)
     FieldImageRatio = (
         maxFieldX / RequiredImageSize[0],
         maxFieldY / RequiredImageSize[1],
