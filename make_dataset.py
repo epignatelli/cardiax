@@ -9,32 +9,88 @@ from termcolor import colored
 import argparse
 
 
-flags.DEFINE_string("cuda_visible_devices", "1", "")
-flags.DEFINE_string("params", "3", "")
-flags.DEFINE_list("shape", [1200, 1200], "")
-flags.DEFINE_integer("n_stimuli", 3, "")
-flags.DEFINE_string("filepath", "data/verify_{}.hdf5", "")
-flags.DEFINE_list("reshape", [256, 256], "")
-flags.DEFINE_integer("save_interval_ms", 1, "")
-flags.DEFINE_bool("use_memory", True, "")
-flags.DEFINE_integer("n_sequences", 10, "")
-flags.DEFINE_bool("plot_while", False, "")
-flags.DEFINE_bool("export_videos", False, "")
+flags.DEFINE_string(
+    "cuda_visible_devices",
+    "1",
+    "ID of the device to use for computation",
+)
+flags.DEFINE_string(
+    "params",
+    "3",
+    "Paramset from the Fenton-Cherry 2002 paper. You can choose between [1A, 1B, 1C, 1D, 1E, 2, 3, 4A, 4B, 4C, , 5, 6, 7, 8, 9, 10]",
+)
+flags.DEFINE_list(
+    "shape",
+    [1200, 1200],
+    "Shape of the field to simulate into. Sizes are in computational units. A computational unit is 1/100 of a cm",
+)
+flags.DEFINE_integer(
+    "length",
+    1000,
+    "The length of the simulation in milliseconds",
+)
+flags.DEFINE_integer(
+    "step",
+    1,
+    "Simulation states will be saved with a span of <step> measured in milliseconds",
+)
+flags.DEFINE_integer(
+    "n_stimuli",
+    3,
+    "Number of random stimuli in the simulation. Stimuli occur each 400ms",
+)
+flags.DEFINE_string(
+    "filepath",
+    "data/verify_{}.hdf5",
+    "Python forbattable string as filepath to save the simulation to. The simulation is saved in hdf5 format.",
+)
+flags.DEFINE_list(
+    "reshape",
+    [256, 256],
+    "States will be resized according to this parameter",
+)
+flags.DEFINE_bool(
+    "use_memory",
+    True,
+    "If true - faster option - simulation steps will be kept in memory and dumped to disk only at the end of the simulation.",
+)
+flags.DEFINE_integer(
+    "n_sequences",
+    10,
+    "Number of random sequences to generate",
+)
+flags.DEFINE_bool(
+    "plot_while",
+    False,
+    "If true python will plot all the intermediate steps while runnning the simulation",
+)
+flags.DEFINE_bool(
+    "export_videos",
+    False,
+    "If true sequences are also exported as mp4 videos",
+)
+
+
 FLAGS = flags.FLAGS
 
 
 def main(argv):
     os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.cuda_visible_devices
+
     paramset = getattr(cardiax.params, "PARAMSET_{}".format(FLAGS.params))
+    step = FLAGS.step
+    stop = FLAGS.length
 
     def make_hdf5(seed):
         rng = jax.random.PRNGKey(seed)
         return deepx.generate.random_sequence(
-            rng,
-            paramset,
-            FLAGS.filepath.format(seed),
-            tuple(FLAGS.shape),
-            FLAGS.n_stimuli,
+            rng=rng,
+            params=paramset,
+            filepath=FLAGS.filepath.format(seed),
+            shape=tuple(FLAGS.shape),
+            n_stimuli=FLAGS.n_stimuli,
+            stop=stop,
+            step=step,
             reshape=tuple(FLAGS.reshape),
             use_memory=FLAGS.use_memory,
             plot_while=FLAGS.plot_while,
