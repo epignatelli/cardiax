@@ -122,6 +122,7 @@ def random_sequence(
     dt: float = 0.01,
     dx: float = 0.01,
     reshape: Shape = (256, 256),
+    use_memory: bool = False,
 ):
     # generate random stimuli
     rngs = jax.random.split(rng, n_stimuli)
