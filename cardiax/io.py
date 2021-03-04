@@ -10,7 +10,7 @@ from .params import Params
 from .stimulus import Protocol, Stimulus
 
 
-def init(path, shape, n_iter, n_stimuli, n_variables=5):
+def init(path, shape, n_iter, n_stimuli, n_variables=3):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     hdf5 = h5py.File(path, "w")
     if "states" not in hdf5:
