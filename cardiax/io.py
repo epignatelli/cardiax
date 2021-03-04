@@ -120,5 +120,5 @@ def imresize(a, size):
     Args:
         a (jnp.ndarray): 2D or 3D array
     """
-    out_shape = a.shape[:2] + size
+    out_shape = a.shape[:-2] + size
     return jax.image.resize(a, out_shape, "bilinear")
