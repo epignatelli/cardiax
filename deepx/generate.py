@@ -4,6 +4,7 @@ from typing import Any, Dict, Sequence, Tuple
 import cardiax
 import jax
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
 
 from . import utils_scars as ipu
 
@@ -182,6 +183,7 @@ def sequence(
     print("Cell parameters", params)
     cardiax.plot.plot_diffusivity(diffusivity)
     cardiax.plot.plot_stimuli(stimuli)
+    plt.show()
 
     # init storage
     hdf5 = cardiax.io.init(
