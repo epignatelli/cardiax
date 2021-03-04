@@ -148,6 +148,7 @@ def random_sequence(
         stimuli=stimuli,
         filename=filepath,
         reshape=reshape,
+        use_memory=use_memory,
     )
 
 
@@ -213,7 +214,7 @@ def sequence(
         if use_memory:
             states.append(cardiax.io.imresize(jnp.arrray(state), out_shape))
         else:
-            cardiax.io.add_state(states_dset, state, i, shape=(len(state), *shape))
+            cardiax.io.add_state(states_dset, state, i, shape=(len(state), *out_shape))
 
     if use_memory:
         cardiax.io.add_states(states_dset, states, 0, len(states))
