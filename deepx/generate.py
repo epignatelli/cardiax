@@ -184,7 +184,7 @@ def sequence(
     cardiax.plot.plot_stimuli(*stimuli)
 
     # init storage
-    init_size = shape if reshape is None or reshape
+    init_size = shape if reshape is None else reshape
     hdf5 = cardiax.io.init(
         filename, init_size, n_iter=len(checkpoints), n_stimuli=len(stimuli)
     )
