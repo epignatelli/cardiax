@@ -164,14 +164,15 @@ def sequence(
     use_memory=False,
 ):
     # output shape
-    shape = reshape if reshape is not None else diffusivity.shape
+    shape = diffusivity.shape
+    out_shape = reshape if reshape is not None else diffusivity.shape
 
     # checkpoints
     checkpoints = jnp.arange(int(start), int(stop), int(step))
 
     # print and plot
-    tissue_size = cardiax.convert.shape_to_realsize(diffusivity.shape, dx)
-    print("Tissue size", tissue_size, "Grid size", diffusivity.shape)
+    tissue_size = cardiax.convert.shape_to_realsize(shape, dx)
+    print("Tissue size", tissue_size, "Grid size", shape)
     print("Checkpointing at:", checkpoints)
     print("Cell parameters", params)
     cardiax.plot.plot_diffusivity(diffusivity)
@@ -180,11 +181,11 @@ def sequence(
 
     # init storage
     hdf5 = cardiax.io.init(
-        filename, shape, n_iter=len(checkpoints), n_stimuli=len(stimuli)
+        filename, out_shape, n_iter=len(checkpoints), n_stimuli=len(stimuli)
     )
-    cardiax.io.add_params(hdf5, params, diffusivity, dt, dx, shape=shape)
-    cardiax.io.add_stimuli(hdf5, stimuli, shape=shape)
-    cardiax.io.add_diffusivity(hdf5, diffusivity, shape=shape)
+    cardiax.io.add_params(hdf5, params, diffusivity, dt, dx, shape=out_shape)
+    cardiax.io.add_stimuli(hdf5, stimuli, shape=out_shape)
+    cardiax.io.add_diffusivity(hdf5, diffusivity, shape=out_shape)
 
     #  generate states
     states_dset = hdf5["states"]
@@ -211,7 +212,7 @@ def sequence(
             dx,
         )
         if use_memory:
-            states.append(cardiax.io.imresize(jnp.arrray(state), shape))
+            states.append(cardiax.io.imresize(jnp.arrray(state), out_shape))
         else:
             cardiax.io.add_state(states_dset, state, i, shape=(len(state), *shape))
 
