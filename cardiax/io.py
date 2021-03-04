@@ -32,6 +32,14 @@ def add_params(hdf5, params, diffusivity, dt, dx, shape=None):
     return True
 
 
+def add_diffusivity(hdf5, diffusivity, shape=None):
+    # reshape
+    if shape is not None:
+        diffusivity = imresize(diffusivity, shape)
+    hdf5.create_dataset("diffusivity", data=diffusivity)
+    return True
+
+
 def add_stimuli(hdf5, stimuli, shape=None):
     # reshape
     if shape is not None:
@@ -60,7 +68,7 @@ def add_state(dset, state, t, shape=None):
     return True
 
 
-def append_states(dset, states, start, end):
+def add_states(dset, states, start, end):
     # shape is (t, 3, w, h), where 3 is the tree fk variable
     dset[start:end] = states
     return True

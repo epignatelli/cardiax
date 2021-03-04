@@ -56,7 +56,7 @@ def random_triangular_stimulus(
 
 
 def random_stimulus(
-    rng: Key, shape: Shape, max_start: int = 0
+    rng: Key, shape: Shape, min_start: int = 0
 ) -> cardiax.stimulus.Stimulus:
     stimuli_fn = (
         random_rectangular_stimulus,
@@ -64,7 +64,7 @@ def random_stimulus(
         random_linear_stimulus,
     )
     rng_1, rng_2, rng_3, rng_4 = jax.random.split(rng, 4)
-    protocol = random_protocol(rng_1, max_start=max_start)
+    protocol = random_protocol(rng_1, min_start=min_start)
     modulus = 20.0
     stimulus_fn = partial(
         stimuli_fn[jax.random.choice(rng_3, jnp.arange(0, len(stimuli_fn)))],
@@ -97,12 +97,10 @@ def random_gaussian_mixture(rng: Key, shape: Shape, n_gaussians: int) -> jnp.nda
 
 
 def random_diffusivity(
-    rng: Key, shape: Shape, domain: Domain = (0.0001, 0.001), coverage: float = 0.4
+    rng: Key, shape: Shape, domain: Domain = (0.0001, 0.001)
 ) -> jnp.ndarray:
     c = ipu.random_diffusivity_scar(rng, shape)
-    a, b = c.min(), c.max()
-    y, z = domain[0], domain[1]
-    return (c - a) * (z - y) / (b - a) + y
+    return cardiax.convert.diffusivity_rescale(c, domain)
 
 
 def rng_sequence(start_seed=0):
@@ -113,22 +111,25 @@ def rng_sequence(start_seed=0):
 
 def random_sequence(
     rng: Key,
-    cell_parameters: cardiax.params.Params,
+    params: cardiax.params.Params,
     filepath: str,
-    shape: Sequence[int] = (1200, 1200),
+    shape: Shape = (1200, 1200),
     n_stimuli: int = 3,
     n_scars: int = 3,
     start: int = 0,
     stop: int = 1000,
+    step: int = 1,
     dt: float = 0.01,
     dx: float = 0.01,
-    reshape: Sequence[int] = (256, 256),
-    save_interval_ms: int = 1,
+    reshape: Shape = (256, 256),
 ):
     # generate random stimuli
     rngs = jax.random.split(rng, n_stimuli)
-    maxstarts = [1, 300, 500]
-    stimuli = [random_stimulus(rngs[i], shape, maxstarts[i]) for i in range(n_stimuli)]
+    min_start = [1, 400, 500]
+    stimuli = [
+        random_stimulus(rngs[i], shape, min_start=min_start[i])
+        for i in range(n_stimuli)
+    ]
 
     # generate diffusivity map
     diffusivity = random_diffusivity(rngs[-1], shape, n_scars)
@@ -137,26 +138,28 @@ def random_sequence(
     return sequence(
         start=cardiax.convert.ms_to_units(start, dt),
         stop=cardiax.convert.ms_to_units(stop, dt),
+        step=cardiax.convert.ms_to_units(step, dt),
         dt=dt,
         dx=dx,
-        cell_parameters=cell_parameters,
+        params=params,
         diffusivity=diffusivity,
         stimuli=stimuli,
         filename=filepath,
+        reshape=reshape,
     )
 
 
 def sequence(
     start,
     stop,
+    step,
     dt,
     dx,
-    cell_parameters,
+    params,
     diffusivity,
     stimuli,
     filename,
     reshape=None,
-    save_interval_ms=1,
 ):
     # check shapes
     for s in stimuli:
@@ -167,9 +170,7 @@ def sequence(
         )
 
     # checkpoints
-    checkpoints = jnp.arange(
-        int(start), int(stop), int(save_interval_ms / dt)
-    )  # this guarantees a checkpoint every ms
+    checkpoints = jnp.arange(int(start), int(stop), int(step))
 
     # shapes
     shape = diffusivity.shape
@@ -178,17 +179,18 @@ def sequence(
     # print and plot
     print("Tissue size", tissue_size, "Grid size", diffusivity.shape)
     print("Checkpointing at:", checkpoints)
-    print("Cell parameters", cell_parameters)
+    print("Cell parameters", params)
     cardiax.plot.plot_diffusivity(diffusivity)
     cardiax.plot.plot_stimuli(*stimuli)
 
     # init storage
-    init_size = reshape or shape
+    init_size = shape if reshape is None or reshape
     hdf5 = cardiax.io.init(
         filename, init_size, n_iter=len(checkpoints), n_stimuli=len(stimuli)
     )
-    cardiax.io.add_params(hdf5, cell_parameters, diffusivity, dt, dx, shape=reshape)
+    cardiax.io.add_params(hdf5, params, diffusivity, dt, dx, shape=reshape)
     cardiax.io.add_stimuli(hdf5, stimuli, shape=reshape)
+    cardiax.io.add_diffusivity(hdf5, diffusivity, shape=reshape)
 
     states_dset = hdf5["states"]
     state = cardiax.solve.init(shape)
@@ -205,7 +207,7 @@ def sequence(
             state,
             checkpoints[i],
             checkpoints[i + 1],
-            cell_parameters,
+            params,
             diffusivity,
             stimuli,
             dt,
