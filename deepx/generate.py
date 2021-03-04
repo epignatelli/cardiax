@@ -159,7 +159,11 @@ def sequence(
     stimuli,
     filename,
     reshape=None,
+    use_memory=False,
 ):
+    # output shape
+    shape = reshape if reshape is not None else diffusivity.shape
+
     # check shapes
     for s in stimuli:
         assert (
@@ -171,11 +175,8 @@ def sequence(
     # checkpoints
     checkpoints = jnp.arange(int(start), int(stop), int(step))
 
-    # shapes
-    shape = diffusivity.shape
-    tissue_size = cardiax.convert.shape_to_realsize(shape, dx)
-
     # print and plot
+    tissue_size = cardiax.convert.shape_to_realsize(diffusivity.shape, dx)
     print("Tissue size", tissue_size, "Grid size", diffusivity.shape)
     print("Checkpointing at:", checkpoints)
     print("Cell parameters", params)
@@ -183,16 +184,17 @@ def sequence(
     cardiax.plot.plot_stimuli(stimuli)
 
     # init storage
-    init_size = shape if reshape is None else reshape
     hdf5 = cardiax.io.init(
-        filename, init_size, n_iter=len(checkpoints), n_stimuli=len(stimuli)
+        filename, shape, n_iter=len(checkpoints), n_stimuli=len(stimuli)
     )
-    cardiax.io.add_params(hdf5, params, diffusivity, dt, dx, shape=reshape)
-    cardiax.io.add_stimuli(hdf5, stimuli, shape=reshape)
-    cardiax.io.add_diffusivity(hdf5, diffusivity, shape=reshape)
+    cardiax.io.add_params(hdf5, params, diffusivity, dt, dx, shape=shape)
+    cardiax.io.add_stimuli(hdf5, stimuli, shape=shape)
+    cardiax.io.add_diffusivity(hdf5, diffusivity, shape=shape)
 
+    #  generate states
     states_dset = hdf5["states"]
     state = cardiax.solve.init(shape)
+    states = []
     for i in range(len(checkpoints) - 1):
         print(
             "Solving at: %dms/%dms\t\t"
@@ -201,6 +203,7 @@ def sequence(
                 cardiax.convert.units_to_ms(checkpoints[-1], dt),
             ),
             end="\r",
+            flush=True,
         )
         state = cardiax.solve._forward_euler(
             state,
@@ -212,7 +215,13 @@ def sequence(
             dt,
             dx,
         )
-        cardiax.io.add_state(states_dset, state, i, shape=(len(state), *reshape))
+        if use_memory:
+            states.append(cardiax.io.imresize(state, shape))
+        else:
+            cardiax.io.add_state(states_dset, state, i, shape=(len(state), *shape))
+
+    if use_memory:
+        cardiax.io.add_states(states_dset, states, 0, len(states))
 
     print()
     hdf5.close()
