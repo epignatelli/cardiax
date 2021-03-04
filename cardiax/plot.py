@@ -40,16 +40,18 @@ def plot_diffusivity(diff, **kwargs):
     return fig, ax
 
 
-def plot_state(state, **kwargs):
+def plot_state(state, diffusivity=None, **kwargs):
     array = tuple(state)
     fig, ax = plt.subplots(
-        1, len(array), figsize=(kwargs.pop("figsize", None) or (25, 5))
+        1,
+        len(array) + int(diffusivity is not None),
+        figsize=(kwargs.pop("figsize", None) or (25, 5)),
     )
     vmin = kwargs.pop("vmin", 0)
     vmax = kwargs.pop("vmax", 1)
     cmap = kwargs.pop("cmap", "RdBu")
 
-    for i in range(len(ax)):
+    for i in range(len(array)):
         if array[i] is None:
             continue
         im = ax[i].imshow(array[i], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
@@ -63,6 +65,15 @@ def plot_state(state, **kwargs):
             FuncFormatter(lambda y, _: "{:.1f}".format(y / 100))
         )
         ax[i].set_ylabel("y [cm]")
+
+    if diffusivity is not None:
+        i += 1
+        im = ax[i].imshow(diffusivity, cmap="gray")
+        ax[i].set_title("Diffusivity map")
+        ax[i].set_xlabel("x [cm]")
+        ax[i].set_ylabel("y [cm]")
+        clb = plt.colorbar(im, ax=ax[i])
+        clb.ax.set_title("[cm^2/ms]")
     return fig, ax
 
 
