@@ -43,8 +43,9 @@ def main(argv):
     def hdf5_to_mp4(filepath, fps=24):
         with h5py.File(filepath, "r") as f:
             sequence = f["states"]
+            diffusivity = f["diffusivity"][:]
             states = [cardiax.solve.State(*x) for x in sequence]
-            video = cardiax.plot.animate_state(states, figsize=(20, 5))
+            video = cardiax.plot.animate_state(states, diffusivity, figsize=(20, 5))
             video_filepath = os.path.splitext(filepath)[0] + ".mp4"
             video.save(video_filepath, writer="ffmpeg", fps=fps)
         return video

@@ -163,11 +163,13 @@ def compare_states(states_a, states_b, **kwargs):
     return fig, ax
 
 
-def animate_state(states, times=None, **kwargs):
+def animate_state(states, diffusivity=None, times=None, **kwargs):
     cached_backend = matplotlib.get_backend()
     matplotlib.use("nbAgg")
     fig, ax = plt.subplots(
-        1, len(states[0]), figsize=(kwargs.pop("figsize", None) or (25, 5))
+        1,
+        len(states[0]) + int(diffusivity is not None),
+        figsize=(kwargs.pop("figsize", None) or (25, 5)),
     )
     vmin = kwargs.pop("vmin", 0)
     vmax = kwargs.pop("vmax", 1)
@@ -177,7 +179,7 @@ def animate_state(states, times=None, **kwargs):
     # setup figure
     state = states[0]
     graphics = []
-    for i in range(len(ax)):
+    for i in range(len(ax) - 1):
         im = ax[i].imshow(state[i], vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
         plt.colorbar(im, ax=ax[i])
         ax[i].set_title(state._fields[i])
@@ -190,11 +192,21 @@ def animate_state(states, times=None, **kwargs):
         )
         ax[i].set_ylabel("y [cm]")
         fig.title = "time: {}".format(times[0])
+
         graphics.append(im)
+
+    if diffusivity is not None:
+        i += 1
+        im = ax[i].imshow(diffusivity, cmap="gray")
+        ax[i].set_title("Diffusivity map")
+        ax[i].set_xlabel("x [cm]")
+        ax[i].set_ylabel("y [cm]")
+        clb = plt.colorbar(im, ax=ax[i])
+        clb.ax.set_title("[cm^2/ms]")
 
     def update(t):
         state = states[t]
-        for i in range(len(ax)):
+        for i in range(len(ax) - 1):
             im = graphics[i].set_data(state[i])
             fig.title = "time: {}".format(times[t])
         return graphics
