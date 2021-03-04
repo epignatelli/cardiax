@@ -58,23 +58,23 @@ def random_triangular_stimulus(
 
 
 def random_stimulus(
-    rng: Key, shape: Shape, max_start: int = 0
+    rng: Key, shape: Shape, min_start: int = 0, max_start: int = 0
 ) -> cardiax.stimulus.Stimulus:
     stimuli_fn = (
         random_rectangular_stimulus,
         random_triangular_stimulus,
         random_linear_stimulus,
     )
-    rng_1, rng_2, rng_3, rng_4 = jax.random.split(rng, 4)
-    protocol = random_protocol(rng_1, max_start=max_start)
+    rng_1, rng_2, rng_3 = jax.random.split(rng, 3)
+    protocol = random_protocol(rng_1, min_start=min_start, max_start=max_start)
     modulus = 20.0
     stimulus_fn = partial(
-        stimuli_fn[jax.random.choice(rng_3, jnp.arange(0, len(stimuli_fn)))],
+        stimuli_fn[jax.random.choice(rng_2, jnp.arange(0, len(stimuli_fn)))],
         shape=shape,
         protocol=protocol,
         modulus=modulus,
     )
-    return stimulus_fn(rng_4)
+    return stimulus_fn(rng_3)
 
 
 def random_gaussian_1d(rng: Key, length: int):
@@ -124,12 +124,19 @@ def random_sequence(
     dx: float = 0.01,
     reshape: Shape = None,
     use_memory: bool = False,
+    plot_while: bool = True,
 ):
     # generate random stimuli
     rngs = jax.random.split(rng, n_stimuli)
-    max_start = jnp.arange(1, stop, 400 * (n_stimuli - 1))
+    max_start = jnp.arange(
+        1,
+        cardiax.convert.ms_to_units(stop, dt),
+        cardiax.convert.ms_to_units(400, dt),
+    )
     stimuli = [
-        random_stimulus(rngs[i], shape, max_start=max_start[i])
+        random_stimulus(
+            rngs[i], shape, min_start=max_start[i], max_start=max_start[i] + 1
+        )
         for i in range(n_stimuli)
     ]
 
@@ -149,6 +156,7 @@ def random_sequence(
         filename=filepath,
         reshape=reshape,
         use_memory=use_memory,
+        plot_while=plot_while,
     )
 
 
@@ -164,6 +172,7 @@ def sequence(
     filename,
     reshape=None,
     use_memory=False,
+    plot_while=True,
 ):
     # output shape
     shape = diffusivity.shape
@@ -174,12 +183,13 @@ def sequence(
 
     # print and plot
     tissue_size = cardiax.convert.shape_to_realsize(shape, dx)
-    print("Tissue size", tissue_size, "Grid size", shape)
-    print("Checkpointing at:", checkpoints)
+    print("Tissue size is: {} - Computing on grid {}".format(tissue_size, shape))
+    print("Checkpointing every {} steps".format(step))
     print("Cell parameters", params)
-    cardiax.plot.plot_diffusivity(diffusivity)
-    cardiax.plot.plot_stimuli(stimuli)
-    plt.show()
+    if plot_while:
+        cardiax.plot.plot_diffusivity(diffusivity)
+        cardiax.plot.plot_stimuli(stimuli)
+        plt.show()
 
     # init storage
     hdf5 = cardiax.io.init(
@@ -194,12 +204,13 @@ def sequence(
     state = cardiax.solve.init(shape)
     states = []
     for i in range(len(checkpoints) - 1):
-        logging.info(
+        print(
             "Solving at: %dms/%dms\t\t"
             % (
                 cardiax.convert.units_to_ms(checkpoints[i + 1], dt),
                 cardiax.convert.units_to_ms(checkpoints[-1], dt),
             ),
+            end="\r",
         )
         state = cardiax.solve._forward_euler(
             state,
@@ -215,6 +226,10 @@ def sequence(
             states.append(cardiax.io.imresize(jnp.array(state), out_shape))
         else:
             cardiax.io.add_state(states_dset, state, i, shape=(len(state), *out_shape))
+
+        if plot_while:
+            cardiax.plot.plot_state(state, diffusivity)
+            plt.show()
 
     if use_memory:
         cardiax.io.add_states(states_dset, states, 0, len(states))
