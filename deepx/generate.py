@@ -115,7 +115,6 @@ def random_sequence(
     filepath: str,
     shape: Shape = (1200, 1200),
     n_stimuli: int = 3,
-    n_scars: int = 3,
     start: int = 0,
     stop: int = 1000,
     step: int = 1,
@@ -181,7 +180,7 @@ def sequence(
     print("Checkpointing at:", checkpoints)
     print("Cell parameters", params)
     cardiax.plot.plot_diffusivity(diffusivity)
-    cardiax.plot.plot_stimuli(*stimuli)
+    cardiax.plot.plot_stimuli(stimuli)
 
     # init storage
     init_size = shape if reshape is None else reshape
@@ -203,7 +202,7 @@ def sequence(
             ),
             end="\r",
         )
-        state = cardiax.solve._forward(
+        state = cardiax.solve._forward_euler(
             state,
             checkpoints[i],
             checkpoints[i + 1],
