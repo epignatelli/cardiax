@@ -212,7 +212,7 @@ def sequence(
             dx,
         )
         if use_memory:
-            states.append(cardiax.io.imresize(jnp.arrray(state), out_shape))
+            states.append(cardiax.io.imresize(jnp.array(state), out_shape))
         else:
             cardiax.io.add_state(states_dset, state, i, shape=(len(state), *out_shape))
 

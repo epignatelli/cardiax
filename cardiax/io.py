@@ -78,7 +78,7 @@ def add_states(dset, states, start, end):
     return True
 
 
-def load(path, dataset, start, end, step=None):
+def load(path, start=None, end=None, step=None):
     with h5py.File(path, "r") as file:
         return [file[dset][start:end:step] for dset in file]
 
@@ -110,6 +110,11 @@ def load_params(filepath):
     return params, D
 
 
+def load_diffusivity(filepath):
+    with h5py.File(filepath, "r") as f:
+        return f["diffusivity"][:]
+
+
 def imresize(a, size):
     """
     Args:
@@ -121,44 +126,3 @@ def imresize(a, size):
         a.shape, size
     )
     return jax.image.resize(a, size, "bilinear")
-
-
-def load_scar(
-    shortID: str,
-    domain=(0.0001, 0.001),
-    root_file_name: str = "data/scars_maps/{content}_{ID}.{ext}",
-):
-    # load scar from file
-    scar = jnp.load(
-        root_file_name.format(content="output_scar", ID=shortID, ext="jnpy"),
-        allow_pickle=False,
-    )
-
-    scar = jnp.array(1 - scar)
-    a, b = scar.min(), scar.max()
-    y, z = domain[0], domain[1]
-    scar = (scar - a) * (z - y) / (b - a) + y
-    return scar
-
-
-def save_scar(
-    scar,
-    params,
-    root_file_name="data/scars_maps/{content}_{ID}.{ext}",
-):
-    # save results with parameter set and image
-    for content, ext in zip(
-        ["params", "output_scar", "scar_image"], ["json", "npy", "png"]
-    ):
-        formatted_file = root_file_name.format(content=content, ID=shortu, ext=ext)
-        if ext == "npy":
-            jnp.save(formatted_file, scar)
-        elif ext == "json":
-            with open(formatted_file, "w") as f:
-                json.dump(params, f)
-        elif ext == "png":
-            imsave(
-                formatted_file,
-                jnp.round(scar * 255).astype(jnp.uint8),
-                check_contrast=False,
-            )
