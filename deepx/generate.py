@@ -114,7 +114,7 @@ def random_sequence(
     params: cardiax.params.Params,
     filepath: str,
     shape: Shape = (1200, 1200),
-    n_stimuli: int = 3,
+    n_stimuli: int = 2,
     start: int = 0,
     stop: int = 1000,
     step: int = 1,
@@ -124,7 +124,7 @@ def random_sequence(
 ):
     # generate random stimuli
     rngs = jax.random.split(rng, n_stimuli)
-    min_start = [1, 400, 500]
+    min_start = jnp.arange(1, stop, 400 * (n_stimuli - 1))
     stimuli = [
         random_stimulus(rngs[i], shape, min_start=min_start[i])
         for i in range(n_stimuli)
