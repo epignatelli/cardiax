@@ -132,7 +132,7 @@ def random_sequence(
     ]
 
     # generate diffusivity map
-    diffusivity = random_diffusivity(rngs[-1], shape, n_scars)
+    diffusivity = random_diffusivity(rngs[-1], shape)
 
     # generate sequence
     return sequence(
