@@ -9,6 +9,7 @@ deepexcite/debug
 
 # data
 *.hdf5
+data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
