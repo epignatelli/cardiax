@@ -1,13 +1,17 @@
 import json
-from skimage.io import imsave
+import os
+
 import h5py
 import jax
 import jax.numpy as jnp
+from skimage.io import imsave
+
 from .params import Params
 from .stimulus import Protocol, Stimulus
 
 
 def init(path, shape, n_iter, n_stimuli, n_variables=5):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     hdf5 = h5py.File(path, "w")
     if "states" not in hdf5:
         # shape is (t, n_variables, w, h)
