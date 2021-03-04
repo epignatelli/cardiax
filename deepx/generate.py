@@ -198,7 +198,7 @@ def sequence(
                 cardiax.convert.units_to_ms(checkpoints[i + 1], dt),
                 cardiax.convert.units_to_ms(checkpoints[-1], dt),
             ),
-            end="\r",
+            # end="\r",
             flush=True,
         )
         state = cardiax.solve._forward_euler(
