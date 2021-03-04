@@ -1,3 +1,4 @@
+import logging
 from functools import partial
 from typing import Any, Dict, Sequence, Tuple
 
@@ -192,14 +193,12 @@ def sequence(
     state = cardiax.solve.init(shape)
     states = []
     for i in range(len(checkpoints) - 1):
-        print(
+        logging.info(
             "Solving at: %dms/%dms\t\t"
             % (
                 cardiax.convert.units_to_ms(checkpoints[i + 1], dt),
                 cardiax.convert.units_to_ms(checkpoints[-1], dt),
             ),
-            # end="\r",
-            flush=True,
         )
         state = cardiax.solve._forward_euler(
             state,
