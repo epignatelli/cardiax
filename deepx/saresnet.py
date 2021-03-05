@@ -256,7 +256,7 @@ def main(hparams):
             )
             train_loss += j_train
             # logging
-            logging_step(
+            log(
                 logger,
                 j_train,
                 x,
@@ -288,7 +288,7 @@ def main(hparams):
             # prepare data
             x, y = batch[:, : hparams.frames_in], batch[:, hparams.frames_in :]
             # learning
-            j_val, y_hat_stacked = validation_step(
+            j_val, y_hat_stacked = evaluate(
                 resnet, params, hparams.evaluation_steps, x, y
             )
             val_loss += j_val
@@ -304,9 +304,7 @@ def main(hparams):
                 break
         # logging
         val_loss /= len(val_dataloader)
-        logging_step(
-            logger, val_loss, x, y_hat_stacked, y, val_iteration, val_iteration, "val"
-        )
+        logp(logger, val_loss, x, y_hat_stacked, y, val_iteration, val_iteration, "val")
 
         ## SCHEDULED UPDATES
         if (i != 0) and (train_loss <= hparams.increase_at) and (hparams.refeed < 20):
