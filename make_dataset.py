@@ -96,7 +96,7 @@ def main(argv):
             plot_while=FLAGS.plot_while,
         )
 
-    def hdf5_to_mp4(filepath, fps=24):
+    def hdf5_to_mp4(filepath, fps=60):
         with h5py.File(filepath, "r") as f:
             sequence = f["states"]
             diffusivity = f["diffusivity"][:]
