@@ -128,10 +128,10 @@ def random_sequence(
 ):
     # generate random stimuli
     rngs = jax.random.split(rng, n_stimuli)
-    max_start = jnp.arange(
+    max_start = jnp.linspace(
         1,
         cardiax.convert.ms_to_units(stop, dt),
-        cardiax.convert.ms_to_units(400, dt),
+        n_stimuli,
     )
     stimuli = [
         random_stimulus(
