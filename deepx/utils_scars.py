@@ -196,7 +196,7 @@ def SoftenPolyAndSplineCurve(
 
         edge_size_diff = []
         CandidateGaussSigmas = jnp.arange(2, 10)
-        for iGaussShape in CandidateGaussShapes:
+        for iGaussShape in CandidateGaussSigmas:
             (
                 _,
                 iavg_edge_size_pixel,
@@ -206,7 +206,7 @@ def SoftenPolyAndSplineCurve(
             edge_size_diff.append(jnp.abs(iavg_edge_size - AvgEdgeSize))
 
         # choose the gaussian size that gives the best results
-        GaussShape = CandidateGaussShapes[jnp.argmin(edge_size_diff)]
+        GaussShape = CandidateGaussSigmas[jnp.argmin(edge_size_diff)]
         # recompute softened image
         SoftenedBlob, avg_edge_size_pixel, avg_edge_size_prop = ConvolveAndAvgEdge(
             GaussShape, GaussSigma
@@ -238,7 +238,7 @@ def CreateSplineCentroids(rng, params=def_params):
     )
     Npoints = jax.random.randint(rng_2, (1,), 3, 7)
     m = len(P[0])
-    starting_point = jax.random.randint(rng_3, (1,), 0, m) #m / 4, m / 4 * 3)
+    starting_point = jax.random.randint(rng_3, (1,), 0, m)  # m / 4, m / 4 * 3)
     select_points = jnp.arange(starting_point, starting_point + Npoints) % len(P[0])
     return (P[0][select_points], P[1][select_points])
 
@@ -377,7 +377,7 @@ def MakeAndSumCompositeBlob(rng, params=def_params, CentroidSpline=None):
         scar = (scar - scar.min()) / (scar.max() - scar.min())
     else:
         scar = jnp.zeros(shape)
-        scar[shape[0]//2, shape[1]//2] = 1.
+        scar[shape[0] // 2, shape[1] // 2] = 1.0
 
     res_dict = {}
     res_dict["CompositeSplineMask"] = scar
@@ -418,7 +418,9 @@ def random_diffusivity_scar(rng, shape: Tuple[int, ...]):
     scar = random_spline(rng_2, params, centroids)
 
     # taper the edges
-    blur_kerne_size = int(shape[0] * 0.1)  #  kernel size is 3% of the image size - or 10%?
+    blur_kerne_size = int(
+        shape[0] * 0.1
+    )  #  kernel size is 3% of the image size - or 10%?
     blur_sigma = jax.random.normal(rng_4, (1,)) * shape[0] / 10
     scar = blur_scar(scar, blur_kerne_size, blur_sigma)
     return jnp.array(1 - scar)

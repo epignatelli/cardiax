@@ -304,7 +304,7 @@ def main(hparams):
                 break
         # logging
         val_loss /= len(val_dataloader)
-        logp(logger, val_loss, x, y_hat_stacked, y, val_iteration, val_iteration, "val")
+        log(logger, val_loss, x, y_hat_stacked, y, val_iteration, val_iteration, "val")
 
         ## SCHEDULED UPDATES
         if (i != 0) and (train_loss <= hparams.increase_at) and (hparams.refeed < 20):
