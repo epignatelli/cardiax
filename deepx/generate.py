@@ -77,38 +77,11 @@ def random_stimulus(
     return stimulus_fn(rng_3)
 
 
-def random_gaussian_1d(rng: Key, length: int):
-    rngs = jax.random.split(rng, 3)
-    mu = jax.random.normal(rngs[0], (1,)) * 0.2
-    sigma = jax.random.normal(rngs[1], (1,)) * 0.3
-    x = jnp.linspace(-1, 1, length)
-    return jnp.exp(-jnp.power(x - mu, 2.0) / (2 * jnp.power(sigma, 2.0)))
-
-
-def random_gaussian_2d(rng: Key, shape: Shape):
-    rngs = jax.random.split(rng, len(shape))
-    x0 = random_gaussian_1d(rngs[0], shape[0])
-    x1 = random_gaussian_1d(rngs[1], shape[1])
-    return 1 - (jnp.ones(shape) * x0).T * x1
-
-
-def random_gaussian_mixture(rng: Key, shape: Shape, n_gaussians: int) -> jnp.ndarray:
-    rngs = jax.random.split(rng, n_gaussians)
-    mixture = [random_gaussian_2d(rngs[i], shape) for i in range(n_gaussians)]
-    return sum(mixture) / n_gaussians
-
-
 def random_diffusivity(
     rng: Key, shape: Shape, domain: Domain = (0.0001, 0.001)
 ) -> jnp.ndarray:
     c = ipu.random_diffusivity_scar(rng, shape)
     return cardiax.convert.diffusivity_rescale(c, domain)
-
-
-def rng_sequence(start_seed=0):
-    rng = jax.random.PRNGKey(start_seed)
-    while True:
-        yield jax.random.split(rng)[0]
 
 
 def random_sequence(
@@ -128,10 +101,10 @@ def random_sequence(
 ):
     # generate random stimuli
     rngs = jax.random.split(rng, n_stimuli)
-    max_start = jnp.linspace(
+    max_start = jnp.arange(
         1,
         cardiax.convert.ms_to_units(stop, dt),
-        n_stimuli,
+        cardiax.convert.ms_to_units(params.tau_d * 1000, dt),
     )
     stimuli = [
         random_stimulus(
