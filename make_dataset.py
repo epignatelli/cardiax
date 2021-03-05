@@ -1,13 +1,14 @@
-from absl import app
-from absl import flags
+import argparse
+import time
 import os
+
 import h5py
 import jax
+from absl import app, flags, logging
+from termcolor import colored
+
 import cardiax
 import deepx
-from termcolor import colored
-import argparse
-
 
 flags.DEFINE_string(
     "cuda_visible_devices",
@@ -114,11 +115,15 @@ def main(argv):
                 "red",
             )
         )
+        start = time.time()
         make_hdf5(i)
+        logging.info("Simulation completed in {}s".format((time.time() - start)))
 
         if FLAGS.export_videos:
+            start = time.time()
             filepath = FLAGS.filepath
-            hdf5_to_mp4(filepath.format(i))
+            hdf5_to_mp4(filepath.format(i), fps=60 / step)
+            logging.info("Conversion completed in {}".format((time.time() - start)))
 
 
 if __name__ == "__main__":
