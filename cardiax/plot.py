@@ -14,7 +14,7 @@ def plot_stimuli(stimuli, **kwargs):
         ax = [ax]
     vmin = kwargs.pop("vmin", -30)
     vmax = kwargs.pop("vmax", 30)
-    cmap = kwargs.pop("cmap", "RdBu")
+    cmap = kwargs.pop("cmap", "BdRu")
     for i, stimulus in enumerate(stimuli):
         im = ax[i].imshow(stimulus.field, vmin=vmin, vmax=vmax, cmap=cmap, **kwargs)
         plt.colorbar(im, ax=ax[i])
@@ -49,7 +49,7 @@ def plot_state(state, diffusivity=None, **kwargs):
     )
     vmin = kwargs.pop("vmin", 0)
     vmax = kwargs.pop("vmax", 1)
-    cmap = kwargs.pop("cmap", "RdBu")
+    cmap = kwargs.pop("cmap", "BdRu")
 
     for i in range(len(array)):
         if array[i] is None:
@@ -86,7 +86,7 @@ def plot_states(states, **kwargs):
     ax = ax if ax.ndim > 1 else ax.reshape(1, -1)
     vmin = kwargs.pop("vmin", 0)
     vmax = kwargs.pop("vmax", 1)
-    cmap = kwargs.pop("cmap", "RdBu")
+    cmap = kwargs.pop("cmap", "BdRu")
 
     for t, state in enumerate(states):
         array = tuple(state)
@@ -116,7 +116,7 @@ def compare_states(states_a, states_b, **kwargs):
     ax = ax if ax.ndim > 1 else ax.reshape(1, -1)
     vmin = kwargs.pop("vmin", 0)
     vmax = kwargs.pop("vmax", 1)
-    cmap = kwargs.pop("cmap", "RdBu")
+    cmap = kwargs.pop("cmap", "BdRu")
 
     for t, state in enumerate(states_a):
         state_a, state_b = states_a[t], states_b[t]
@@ -173,7 +173,7 @@ def animate_state(states, diffusivity=None, times=None, **kwargs):
     )
     vmin = kwargs.pop("vmin", 0)
     vmax = kwargs.pop("vmax", 1)
-    cmap = kwargs.pop("cmap", "RdBu")
+    cmap = kwargs.pop("cmap", "BdRu")
     times = times or range(len(states))
 
     # setup figure
