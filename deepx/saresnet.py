@@ -23,52 +23,109 @@ from helx.types import Params, Module
 
 
 @module
-def ReselBlock(n_heads, input_format):
+def SelfAttentionBlock(n_heads, input_format):
     one = (1,) * len((1, 1))
+    conv_init, conv_apply = GeneralConv(input_format, n_heads, one, one, "SAME")
 
     def init(rng, input_shape):
-        return tuple(
-            *(jax.vmap(GeneralConv(input_format, n_heads, one, one, "SAME")[0]))(
-                jnp.stack(jax.random.split(rng, 4))
-            )
+        rng_1, rng_2, rng_3, rng_4 = jax.random.split(rng, 4)
+        fgh = (
+            conv_init(rng_1, input_shape),
+            conv_init(rng_2, input_shape),
+            conv_init(rng_3, input_shape),
         )
+        v = conv_init(rng_4, input_shape)
+        return (fgh, v)
 
     def apply(params, inputs):
-        dw_conv = lambda x, w, b: b + jax.lax.conv_general_dilated(
-            x, w, one, one, one, one, dimension_numbers=input_format
-        )
-        fx, gx, hx = jax.vmap(dw_conv)(params[:3], inputs)
+        fgh, v = params
+        fx, gx, hx = jax.vmap(conv_apply)(fgh, inputs)
         sx = jnp.matmul(jnp.transpose(fx, (-2, -1)), gx)
         sx = jax.nn.softmax(sx, axis=-2)
         sx = jnp.matmul(sx, hx)
-        vx = dw_conv(sx, *params[-1])
-        return inputs + vx
+        vx = conv_apply(sx, v)
+        return vx
 
     return (init, apply)
 
 
-def ResNet(
-    hidden_channels, out_channels, kernel_size, strides, padding, depth, input_format
-):
-    residual = stax.serial(
-        GeneralConv(input_format, hidden_channels, kernel_size, strides, padding),
-        *[ReselBlock(hidden_channels, input_format) for _ in range(depth)],
-        GeneralConv(input_format, out_channels, kernel_size, strides, padding)
+def ConvBlock(out_channels, input_format):
+    return Module(
+        stax.serial(
+            stax.FanOut(3),
+            stax.parallel(
+                GeneralConv(input_format, out_channels, (3, 3), (2, 2), "SAME"),
+                GeneralConv(input_format, out_channels, (5, 5), (4, 4), "SAME"),
+                GeneralConv(input_format, out_channels, (7, 7), (8, 8), "SAME"),
+            ),
+            stax.FanInConcat(axis=-3),
+        )
     )
-    return Module(*stax.serial(FanOut(2), stax.parallel(residual, Identity), FanInSum))
+
+
+def ResBlock(out_channels, n_heads, input_format):
+    return stax.serial(
+        stax.FanOut(2),
+        stax.parallel(
+            Identity,
+            ConvBlock(out_channels, input_format),
+        ),
+        stax.parallel(
+            Identity,
+            SelfAttentionBlock(n_heads, input_format),
+        ),
+        stax.FanInSum(),
+    )
+
+
+def ResNet(hidden_channels, out_channels, n_heads, depth, input_format):
+    return Module(
+        stax.serial(
+            FanOut(2),
+            stax.parallel(
+                Identity,
+                GeneralConv(input_format, hidden_channels, (1, 1), (1, 1), "SAME"),
+            ),
+            stax.parallel(
+                Identity,
+                stax.serial(
+                    *[
+                        ResBlock(hidden_channels, n_heads, input_format)
+                        for _ in range(depth)
+                    ]
+                ),
+            ),
+            stax.parallel(
+                Identity,
+                GeneralConv(input_format, out_channels, (1, 1), (1, 1), "SAME"),
+            ),
+            stax.FanInSum(),
+        )
+    )
 
 
 @jax.jit
 def loss(y_hat: jnp.ndarray, y: jnp.ndarray):
-    grad_y_hat_1 = cardiax.solve.gradient(y_hat, -1)
-    grad_y_hat_2 = cardiax.solve.gradient(y_hat, -2)
-    grad_y_1 = cardiax.solve.gradient(y, -1)
-    grad_y_2 = cardiax.solve.gradient(y, -2)
-    grad_loss_1 = jnp.mean((grad_y_hat_1 - grad_y_1) ** 2)  # mse
-    grad_loss_2 = jnp.mean((grad_y_hat_2 - grad_y_2) ** 2)  # mse
-    grad_loss = grad_loss_1 + grad_loss_2
+    # zero derivative
     recon_loss = jnp.mean((y_hat - y) ** 2)  # mse
-    return grad_loss + recon_loss
+
+    # first derivative
+    grad_y_hat_x = cardiax.solve.gradient(y_hat, -1)
+    grad_y_hat_y = cardiax.solve.gradient(y_hat, -2)
+    grad_y_x = cardiax.solve.gradient(y, -1)
+    grad_y_y = cardiax.solve.gradient(y, -2)
+    grad_loss_x = jnp.mean((grad_y_hat_x - grad_y_x) ** 2)  # mse
+    grad_loss_y = jnp.mean((grad_y_hat_y - grad_y_y) ** 2)  # mse
+
+    # second derivative
+    del_y_hat_x = cardiax.solve.gradient(grad_y_hat_x, -1)
+    del_y_hat_y = cardiax.solve.gradient(grad_y_hat_y, -1)
+    del_y_x = cardiax.solve.gradient(grad_y_x, -1)
+    del_y_y = cardiax.solve.gradient(grad_y_y, -1)
+    del_loss_x = jnp.mean((del_y_hat_x - del_y_x) ** 2)  # mse
+    del_loss_y = jnp.mean((del_y_hat_y - del_y_y) ** 2)  # mse
+
+    return recon_loss + grad_loss_x + grad_loss_y + del_loss_x + del_loss_y
 
 
 @partial(jax.jit, static_argnums=0)
