@@ -47,20 +47,20 @@ def SelfAttentionBlock(n_heads, input_format):
     return (init, apply)
 
 
+@module
 def ConvBlock(out_channels, input_format):
-    return Module(
-        stax.serial(
-            stax.FanOut(3),
-            stax.parallel(
-                GeneralConv(input_format, out_channels, (3, 3), (2, 2), "SAME"),
-                GeneralConv(input_format, out_channels, (5, 5), (4, 4), "SAME"),
-                GeneralConv(input_format, out_channels, (7, 7), (8, 8), "SAME"),
-            ),
-            stax.FanInConcat(axis=-3),
-        )
+    return stax.serial(
+        stax.FanOut(3),
+        stax.parallel(
+            GeneralConv(input_format, out_channels, (3, 3), (2, 2), "SAME"),
+            GeneralConv(input_format, out_channels, (5, 5), (4, 4), "SAME"),
+            GeneralConv(input_format, out_channels, (7, 7), (8, 8), "SAME"),
+        ),
+        stax.FanInConcat(axis=-3),
     )
 
 
+@module
 def ResBlock(out_channels, n_heads, input_format):
     return stax.serial(
         stax.FanOut(2),
