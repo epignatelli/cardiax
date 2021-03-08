@@ -60,6 +60,11 @@ flags.DEFINE_integer(
     10,
     "Number of random sequences to generate",
 )
+flags.DEFINE_integer(
+    "start_seed",
+    0,
+    "Seed that start the sequence of random seeds",
+)
 flags.DEFINE_bool(
     "plot_while",
     False,
@@ -81,6 +86,7 @@ def main(argv):
     paramset = getattr(cardiax.params, "PARAMSET_{}".format(FLAGS.params))
     step = FLAGS.step
     stop = FLAGS.length
+    start_seed = FLAGS.start_seed
 
     def make_hdf5(seed):
         rng = jax.random.PRNGKey(seed)
@@ -109,20 +115,23 @@ def main(argv):
 
     n_sequences = FLAGS.n_sequences
     for i in range(n_sequences):
+        seed = start_seed + i
         print(
             colored(
-                "Generating sequence with random seed {}/{}".format(i, n_sequences - 1),
+                "Generating sequence with random seed {}/{}".format(
+                    seed, start_seed + n_sequences
+                ),
                 "red",
             )
         )
         start = time.time()
-        make_hdf5(i)
+        make_hdf5(seed)
         logging.info("Simulation completed in {}s".format((time.time() - start)))
 
         if FLAGS.export_videos:
             start = time.time()
             filepath = FLAGS.filepath
-            hdf5_to_mp4(filepath.format(i), fps=60 / step)
+            hdf5_to_mp4(filepath.format(seed), fps=60 / step)
             logging.info("Conversion completed in {}".format((time.time() - start)))
 
 

@@ -11,7 +11,7 @@ import cardiax
 import jax
 import jax.numpy as jnp
 from helx.methods import inject, module, nn
-from helx.types import Module, Optimiser, Params, OptimizerState
+from helx.types import Module, Optimiser, OptimizerState, Params
 from jax.experimental import optimizers, stax
 from jax.experimental.stax import Elu, FanInSum, FanOut, GeneralConv, Identity
 
@@ -76,34 +76,46 @@ def ResBlock(out_channels, n_heads, input_format):
     )
 
 
-def ResNet(hidden_channels, out_channels, n_heads, depth, input_format):
-    return Module(
-        stax.serial(
-            FanOut(2),
-            stax.parallel(
-                Identity,
-                GeneralConv(input_format, hidden_channels, (1, 1), (1, 1), "SAME"),
+@module
+def SelfAttentionResNet(hidden_channels, out_channels, n_heads, depth, input_format):
+    return stax.serial(
+        FanOut(2),
+        stax.parallel(
+            Identity,
+            GeneralConv(input_format, hidden_channels, (1, 1), (1, 1), "SAME"),
+        ),
+        stax.parallel(
+            Identity,
+            stax.serial(
+                *[
+                    ResBlock(hidden_channels, n_heads, input_format)
+                    for _ in range(depth)
+                ]
             ),
-            stax.parallel(
-                Identity,
-                stax.serial(
-                    *[
-                        ResBlock(hidden_channels, n_heads, input_format)
-                        for _ in range(depth)
-                    ]
-                ),
-            ),
-            stax.parallel(
-                Identity,
-                GeneralConv(input_format, out_channels, (1, 1), (1, 1), "SAME"),
-            ),
-            stax.FanInSum(),
-        )
+        ),
+        stax.parallel(
+            Identity,
+            GeneralConv(input_format, out_channels, (1, 1), (1, 1), "SAME"),
+        ),
+        stax.FanInSum(),
     )
 
 
-@jax.jit
-def loss(y_hat: jnp.ndarray, y: jnp.ndarray):
+class HParams(NamedTuple):
+    hidden_channels: int
+    out_channels: int
+    n_heads: int
+    depth: int
+    input_format: str
+    lr: float
+    refeed: int
+    batch_size: int
+    epochs: int
+    seed: int
+    input_shape: Tuple[..., int]
+
+
+def compute_loss(y_hat, y):
     # zero derivative
     recon_loss = jnp.mean((y_hat - y) ** 2)  # mse
 
@@ -126,71 +138,71 @@ def loss(y_hat: jnp.ndarray, y: jnp.ndarray):
     return recon_loss + grad_loss_x + grad_loss_y + del_loss_x + del_loss_y
 
 
-@partial(jax.jit, static_argnums=0)
-def forward(model, params, x, y):
+def forward(
+    model: Module, params: Params, x: jnp.ndarray, y: jnp.ndarray
+) -> Tuple[float, jnp.ndarray]:
     y_hat = model.apply(params, x)
-    return (loss(y_hat, y), y_hat)
+    return (compute_loss(y_hat, y), y_hat)
 
 
-@partial(jax.jit, static_argnums=0)
-def backward(model, params, x, y):
+def backward(
+    model: Module, params: Params, x: jnp.ndarray, y: jnp.ndarray
+) -> Tuple[Tuple[float, jnp.ndarray], jnp.ndarray]:
     return jax.value_and_grad(forward, argnums=1, has_aux=True)(model, params, x, y)
 
 
-@partial(jax.jit, static_argnums=(0, 1))
-def sgd_step(model, optimiser, iteration, optimiser_state, x, y):
+def sgd_step(
+    model: Module,
+    optimiser: Optimiser,
+    iteration: int,
+    optimiser_state: OptimizerState,
+    x: jnp.ndarray,
+    y: jnp.ndarray,
+) -> Tuple[float, jnp.ndarray, OptimizerState]:
     params = optimiser.params(optimiser_state)
     (loss, y_hat), gradients = backward(model, params, x, y)
     return loss, y_hat, optimiser.update(iteration, gradients, optimiser_state)
 
 
-@partial(jax.jit, static_argnums=(0, 1, 2))
-def update(model, optimiser, refeed, iteration, optimiser_state, x, y):
-    # init state
-    loss = 0.0
-    u_t1 = x
-    y_hat_stacked = []
-    for t in range(refeed):
-        u_t2 = y[:, t][:, None, :, :, :]
-        j, y_hat, optimiser_state = sgd_step(
-            model, optimiser, iteration, optimiser_state, u_t1, u_t2
-        )
-        # update state
-        loss += j
-        u_t1 = jnp.concatenate([u_t1[:, 1:], y_hat], axis=1)
-        y_hat_stacked += [y_hat]
-    return loss, jnp.concatenate(y_hat_stacked, axis=1), optimiser_state
-
-
-@partial(jax.jit, static_argnums=(0, 1, 2))
-def update_fast(model, optimiser, refeed, iteration, optimiser_state, x, y):
+@partial(jax.jit, static_argnums=(0, 1, 3, 7))
+def tbtt_step(
+    model: Module,
+    optimiser: Optimiser,
+    refeed: int,
+    iteration: int,
+    optimiser_state: OptimizerState,
+    x,
+    y,
+) -> Tuple[float, jnp.ndarray, OptimizerState]:
     def body_fun(i, inputs):
-        loss, u_t1, optimiser_state = inputs
-        u_t2 = y[:, i][:, None, :, :, :]
-        loss, y_hat, optimiser_state = sgd_step(
-            model, optimiser, iteration, optimiser_state, u_t1, u_t2
+        _loss0, s0, optimiser_state = inputs
+        s1 = y[:, i][:, None, :, :, :]
+        _loss1, y_hat, optimiser_state = sgd_step(
+            model, optimiser, iteration, optimiser_state, s0, s1
         )
-        u_t1 = jnp.concatenate([u_t1[:, 1:], y_hat], axis=1)
-        return (loss, u_t1, optimiser_state)
+        _loss = _loss0 + _loss1
+        s0 = jnp.concatenate([s0[:, 1:], y_hat], axis=1)
+        return (_loss, s0, optimiser_state), s0
 
-    return jax.lax.fori_loop(0, refeed, body_fun, (0.0, x, optimiser_state))
+    (loss, _, optimiser_state), ys = jax.lax.scan(
+        body_fun, (0.0, x, optimiser_state), xs=None, length=refeed
+    )
+    return (loss, ys, optimiser_state)
 
 
-@partial(jax.jit, static_argnums=(0, 2))
-def evaluate(model, params, refeed, x, y):
-    # init state
-    loss = 0.0
-    u_t1 = x
-    y_hat_stacked = []
-    for t in range(refeed):
-        # evaluate state
-        u_t2 = y[:, t][:, None, :, :, :]
-        j, y_hat = forward(model, params, u_t1, u_t2)
-        # update state
-        loss += j
-        u_t1 = jnp.concatenate([u_t1[:, 1:], y_hat], axis=1)
-        y_hat_stacked += [y_hat]
-    return loss, jnp.concatenate(y_hat_stacked, axis=1)
+def evaluate():
+    def body_fun(i, inputs):
+        _loss0, s0 = inputs
+        s1 = y[:, i][:, None, :, :, :]
+        _loss1, y_hat = forward(model, s0, s1)
+        _loss = _loss0 + _loss1
+        s0 = jnp.concatenate([s0[:, 1:], y_hat], axis=1)
+        return (_loss, s0), s0
+
+    (loss, _), ys = jax.lax.scan(
+        body_fun, (0.0, x, optimiser_state), xs=None, length=refeed
+    )
+    return (loss, ys)
 
 
 def log(logger, loss, x, y_hat, y, step, frequency, prefix):
@@ -228,8 +240,6 @@ def log(logger, loss, x, y_hat, y, step, frequency, prefix):
 
 
 def main(hparams):
-    # seed experiment
-    seed_experiment(hparams.seed)
     # set logger
     logdir = os.path.join(hparams.logdir, hparams.experiment)
     logger = SummaryWriter(logdir)
@@ -271,12 +281,10 @@ def main(hparams):
 
     # init model parameters
     rng = jax.random.PRNGKey(hparams.seed)
-    resnet = ResNet(
+    network = SelfAttentionResNet(
         hidden_channels=hparams.n_filters,
+        n_heads=hparams.n_heads,
         out_channels=1,
-        kernel_size=hparams.kernel_size,
-        strides=tuple([1] * len(hparams.kernel_size)),
-        padding="SAME",
         depth=hparams.depth,
         input_format=(hparams.input_format, "IDWHO", hparams.input_format),
     )
@@ -284,7 +292,7 @@ def main(hparams):
         with open(hparams.from_checkpoints, "rb") as f:
             params = pickle.load(f)
     else:
-        _, params = resnet.init(rng, in_shape)
+        _, params = network.init(rng, in_shape)
 
     # init optimiser
     optimiser = Optimiser(optimizers.adam(hparams.lr))
@@ -300,8 +308,8 @@ def main(hparams):
             # prepare data
             x, y = batch[:, : hparams.frames_in], batch[:, hparams.frames_in :]
             # learning
-            j_train, y_hat_stacked, optimiser_state = update_fast(
-                resnet,
+            j_train, ys_hat, optimiser_state = tbtt_step(
+                network,
                 optimiser,
                 hparams.refeed,
                 train_iteration,
@@ -315,7 +323,7 @@ def main(hparams):
                 logger,
                 j_train,
                 x,
-                y_hat_stacked,
+                ys_hat,
                 y,
                 train_iteration,
                 hparams.log_frequency,
@@ -333,7 +341,7 @@ def main(hparams):
                 break
         # checkpoint model
         train_loss /= len(train_dataloader)
-        logger.checkpoint("resnet", optimiser_state, train_iteration, train_loss)
+        logger.checkpoint("network", optimiser_state, train_iteration, train_loss)
 
         ## VALIDATING
         # we always validate on 20 times steps
@@ -343,9 +351,7 @@ def main(hparams):
             # prepare data
             x, y = batch[:, : hparams.frames_in], batch[:, hparams.frames_in :]
             # learning
-            j_val, y_hat_stacked = evaluate(
-                resnet, params, hparams.evaluation_steps, x, y
-            )
+            j_val, ys_hat = evaluate(network, params, hparams.evaluation_steps, x, y)
             val_loss += j_val
             # prepare next iteration
             print(
@@ -359,7 +365,7 @@ def main(hparams):
                 break
         # logging
         val_loss /= len(val_dataloader)
-        log(logger, val_loss, x, y_hat_stacked, y, val_iteration, val_iteration, "val")
+        log(logger, val_loss, x, ys_hat, y, val_iteration, val_iteration, "val")
 
         ## SCHEDULED UPDATES
         if (i != 0) and (train_loss <= hparams.increase_at) and (hparams.refeed < 20):
@@ -413,7 +419,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--root",
         type=str,
-        default="/media/ep119/DATADRIVE3/epignatelli/deepexcite/train_dev_set/",
+        default="/home/epignatelli/data/train/",
     )
     parser.add_argument(
         "--train_search_regex", type=str, default="^spiral.*_PARAMS5.hdf5"
@@ -422,7 +428,7 @@ if __name__ == "__main__":
         "--val_search_regex", type=str, default="^spiral.*_PARAMS5.hdf5"
     )
     # program
-    parser.add_argument("--logdir", type=str, default="logs/resnet/train")
+    parser.add_argument("--logdir", type=str, default="logs/network/train")
     parser.add_argument("--experiment", type=str, default="../debug")
     parser.add_argument("--log_frequency", type=int, default=5)
     parser.add_argument("--debug", action="store_true", default=False)
