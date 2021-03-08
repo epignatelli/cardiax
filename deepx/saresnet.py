@@ -7,19 +7,17 @@ import sys
 from functools import partial
 from typing import Callable, NamedTuple, Tuple
 
+import cardiax
 import jax
 import jax.numpy as jnp
-import cardiax
-from helx.types import Optimiser
+from helx.methods import inject, module, nn
+from helx.types import Module, Optimiser, Params, OptimizerState
 from jax.experimental import optimizers, stax
 from jax.experimental.stax import Elu, FanInSum, FanOut, GeneralConv, Identity
 
 from .dataset import ConcatSequence, DataStream, imresize
 from .jaxboard import SummaryWriter
 from .utils import seed_experiment
-
-from helx.methods import module
-from helx.types import Params, Module
 
 
 @module
