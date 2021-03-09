@@ -24,7 +24,7 @@ class Dataset:
         self.step = step
         self.batch_size = batch_size
         self.re_key = re_key
-        self.files = [h5py.File(filepath, "r") for filepath in self.filepaths()]
+        self.files = [h5py.File(filepath, "r") for filepath in self._filepaths()]
 
         #  private:
         self._n_sequences = len(self.files)
@@ -43,9 +43,9 @@ class Dataset:
     def __next__(self):
         pass
 
-    def __del__(self):
-        for file in self.files:
-            file.close()
+    # def __del__(self):
+    #     for file in self.files:
+    #         file.close()
 
     def num_batches(self):
         return len(self) // self.batch_size
@@ -53,37 +53,51 @@ class Dataset:
     def sample(self, rng):
         def _sample(i, t):
             sequence = self.files[i]
-            batch = jnp.array(
+            states = jnp.array(
                 sequence["states"][
                     t : t + (self.frames_in + self.frames_out) : self.step
                 ]
             )
-            xs, ys = batch.split((self.frames_in, self.frames_out))
-            diffusivity = jnp.array((sequence["diffusivity"],) * self.frames_in)
-            xs = jnp.stack(
-                [xs, diffusivity], axis=1
-            )  # stacking D as a channel (v, w, u, D)
+            diffusivity = jnp.array(sequence["diffusivity"])
+            return states, diffusivity
+            # xs, ys = batch[: self.frames_in], batch[self.frames_in :]
+            #     :, None
+            # ]
+            # xs = jnp.concatenate(
+            #     [xs, diffusivity], axis=1
+            # )  # stacking D as a channel (v, w, u, D)
+            # return xs, ys
+
+        def pack(ss, ds):
+            xs, ys = ss.split((self.frames_in,))
+            dd = jnp.tile(ds, (1, self.frames_in, 1, 1, 1))
+            xs = jnp.concatenate([xs, dd])
             return xs, ys
 
         rng_1, rng_2 = jax.random.split(rng, 2)
-        ids = jax.random.randint(rng_1, (self.batch_size,), maxval=self._n_sequences)
-        starts = jax.random.randint(
-            rng_2, (self.batch_size,), maxval=self._sequence_len
+        ids = jax.random.randint(
+            rng_1, (self.batch_size,), minval=0, maxval=self._n_sequences
         )
-        # ids = self._rng.randint(self._n_sequences, size=(self.batch_size))
-        # starts = self._rng.randint(self._sequence_len, size=(self.batch_size))
-        return jax.vmap(_sample)(
-            jax.random.split(rng_2, self.batch_size), list(zip(ids, starts))
+        starts = jax.random.randint(
+            rng_2, (self.batch_size,), minval=0, maxval=self._sequence_len
         )
 
+        batch, diffusivities = [], []
+        for i in range(self.batch_size):
+            b, d = _sample(ids[i], starts[i])
+            batch.append(b)
+            diffusivities.append(d)
+
+        return pack(jnp.stack(batch), jnp.stack(diffusivities))
+
     def increase_frames(self):
-        self.frame_out += 1
+        self.frames_out += 1
         self._reset_indices()
 
     def _reset_indices(self):
         ts = onp.arange(0, len(self.files[0]["states"]))
         idx = onp.stack([ts + len(ts) * i for i in range(len(self.files))])
-        stop = (self.frames_in + self.frame_out) * self.step
+        stop = (self.frames_in + self.frames_out) * self.step
         self.indices = idx[:, :-stop]
 
     def _filepaths(self):
@@ -102,7 +116,7 @@ class Dataset:
 
 
 class Paramset5Dataset(Dataset):
-    def __init__(self, folder, frames_in, frames_out, step, batch_size=1, seed=0):
+    def __init__(self, folder, frames_in, frames_out, step, batch_size=1):
         super().__init__(
             folder,
             frames_in,
@@ -110,5 +124,4 @@ class Paramset5Dataset(Dataset):
             step,
             batch_size,
             re_key=".*paramset5.*/i",
-            seed=seed,
         )

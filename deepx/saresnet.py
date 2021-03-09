@@ -11,10 +11,11 @@ from helx.types import Module, Optimiser, OptimizerState, Params, Shape
 from jax.experimental import stax
 
 
-@module
+# @module
 def SelfAttentionBlock(n_heads, input_format):
-    one = (1,) * len((1, 1))
-    conv_init, conv_apply = stax.GeneralConv(input_format, n_heads, one, one, "SAME")
+    conv_init, conv_apply = stax.GeneralConv(
+        input_format, n_heads, (4, 1, 1), (1, 1, 1), "SAME"
+    )
 
     def init(rng, input_shape):
         rng_1, rng_2, rng_3, rng_4 = jax.random.split(rng, 4)
@@ -38,20 +39,20 @@ def SelfAttentionBlock(n_heads, input_format):
     return (init, apply)
 
 
-@module
+# @module
 def ConvBlock(out_channels, input_format):
     return stax.serial(
         stax.FanOut(3),
         stax.parallel(
-            stax.GeneralConv(input_format, out_channels, (3, 3), (2, 2), "SAME"),
-            stax.GeneralConv(input_format, out_channels, (5, 5), (4, 4), "SAME"),
-            stax.GeneralConv(input_format, out_channels, (7, 7), (8, 8), "SAME"),
+            stax.GeneralConv(input_format, out_channels, (4, 3, 3), (1, 2, 2), "SAME"),
+            stax.GeneralConv(input_format, out_channels, (4, 5, 5), (1, 4, 4), "SAME"),
+            stax.GeneralConv(input_format, out_channels, (4, 7, 7), (1, 5, 5), "SAME"),
         ),
         stax.FanInConcat(axis=-3),
     )
 
 
-@module
+# @module
 def ResBlock(out_channels, n_heads, input_format):
     return stax.serial(
         stax.FanOut(2),
@@ -63,7 +64,7 @@ def ResBlock(out_channels, n_heads, input_format):
             stax.Identity,
             SelfAttentionBlock(n_heads, input_format),
         ),
-        stax.FanInSum(),
+        stax.FanInSum,
     )
 
 
@@ -73,22 +74,25 @@ def SelfAttentionResNet(hidden_channels, out_channels, n_heads, depth, input_for
         stax.FanOut(2),
         stax.parallel(
             stax.Identity,
-            stax.GeneralConv(input_format, hidden_channels, (1, 1), (1, 1), "SAME"),
-        ),
-        stax.parallel(
-            stax.Identity,
-            stax.serial(
-                *[
-                    ResBlock(hidden_channels, n_heads, input_format)
-                    for _ in range(depth)
-                ]
+            stax.GeneralConv(
+                input_format, hidden_channels, (1, 1, 1), (1, 1, 1), "SAME"
             ),
         ),
         stax.parallel(
             stax.Identity,
-            stax.GeneralConv(input_format, out_channels, (1, 1), (1, 1), "SAME"),
+            stax.serial(
+                ResBlock(hidden_channels, n_heads, input_format),
+                ResBlock(hidden_channels, n_heads, input_format),
+                ResBlock(hidden_channels, n_heads, input_format),
+                ResBlock(hidden_channels, n_heads, input_format),
+                ResBlock(hidden_channels, n_heads, input_format),
+            ),
         ),
-        stax.FanInSum(),
+        stax.parallel(
+            stax.Identity,
+            stax.GeneralConv(input_format, out_channels, (1, 1, 1), (1, 1, 1), "SAME"),
+        ),
+        stax.FanInSum,
     )
 
 
@@ -97,6 +101,7 @@ class HParams(NamedTuple):
     log_frequency: int
     debug: bool
     hidden_channels: int
+    in_channels: int
     out_channels: int
     n_heads: int
     depth: int
@@ -201,14 +206,14 @@ def tbtt_step(
 def evaluate(
     model: Module,
     refeed: int,
-    iteration: int,
+    params,
     x,
     y,
 ) -> Tuple[float, jnp.ndarray]:
     def body_fun(i, inputs):
         _loss0, s0 = inputs
         s1 = y[:, i][:, None, :, :, :]
-        _loss1, y_hat = forward(model, s0, s1)
+        _loss1, y_hat = forward(model, params, s0, s1)
         _loss = _loss0 + _loss1
         s0 = jnp.concatenate([s0[:, 1:], y_hat], axis=1)
         carry, y = (_loss, s0), s0
@@ -226,12 +231,12 @@ def log(loss, xs, ys_hat, ys, step, frequency, prefix=""):
     logging.debug(ys.shape)
 
     # log loss
-    wandb.scalar("{}/loss".format(prefix), loss, step=step)
+    wandb.log("{}/loss".format(prefix), loss, step=step)
 
     def log_states(array, name, **kw):
         states = [cardiax.solve.State(*a.squeeze()) for a in array]
         fig, _ = cardiax.plot.plot_states(
-            array, figsize=(15, 2.5 * array.shape[1]), **kw
+            states, figsize=(15, 2.5 * array.shape[1]), **kw
         )
         wandb.log("{}/{}".format(prefix, name), fig, step)
 
