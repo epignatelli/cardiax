@@ -115,10 +115,10 @@ def load_diffusivity(filepath):
         return f["diffusivity"][:]
 
 
-def imresize(a, size):
+def imresize(a, size, method="bilinear"):
     """
     Args:
         a (jnp.ndarray): 2D or 3D array
     """
     out_shape = a.shape[:-2] + size
-    return jax.image.resize(a, out_shape, "bilinear")
+    return jax.image.resize(a, out_shape, method)

@@ -1,7 +1,4 @@
 import logging
-import os
-import pickle
-import sys
 from functools import partial
 from typing import NamedTuple, Tuple
 
@@ -9,12 +6,9 @@ import cardiax
 import jax
 import jax.numpy as jnp
 import wandb
-from absl import app, flags, logging
 from helx.methods import module
 from helx.types import Module, Optimiser, OptimizerState, Params, Shape
-from jax.experimental import optimizers, stax
-
-from .dataset import ConcatSequence, DataStream, imresize
+from jax.experimental import stax
 
 
 @module
@@ -99,17 +93,29 @@ def SelfAttentionResNet(hidden_channels, out_channels, n_heads, depth, input_for
 
 
 class HParams(NamedTuple):
+    seed: int
+    log_frequency: int
+    debug: bool
     hidden_channels: int
     out_channels: int
     n_heads: int
     depth: int
-    input_format: str
+    input_format: Tuple[str, str, str]
     lr: float
-    refeed: int
     batch_size: int
+    evaluation_steps: int
     epochs: int
-    seed: int
-    input_shape: Shape
+    increase_at: float
+    teacher_forcing_prob: float
+    from_checkpoint: str
+    root: str
+    paramset: str
+    size: int
+    frames_in: int
+    frames_out: int
+    step: int
+    refeed: int
+    preload: bool
 
 
 def compute_loss(y_hat, y):
@@ -222,227 +228,21 @@ def log(loss, xs, ys_hat, ys, step, frequency, prefix=""):
     # log loss
     wandb.scalar("{}/loss".format(prefix), loss, step=step)
 
+    def log_states(array, name, **kw):
+        states = [cardiax.solve.State(*a.squeeze()) for a in array]
+        fig, _ = cardiax.plot.plot_states(
+            array, figsize=(15, 2.5 * array.shape[1]), **kw
+        )
+        wandb.log("{}/{}".format(prefix, name), fig, step)
+
     # log input states
-    x_states = [cardiax.solve.State(*x.squeeze()) for x in xs[0]]
-    fig, _ = cardiax.plot.plot_states(x_states, figsize=(15, 2.5 * xs.shape[1]))
-    wandb.log("{}/x".format(prefix), fig, step)
-
-    # log predictions as images
-    y_hat_states = [cardiax.solve.State(*y_hat.squeeze()) for y_hat in ys_hat[0]]
-    fig, _ = cardiax.plot.plot_states(y_hat_states, figsize=(15, 2.5 * ys_hat.shape[1]))
-    wandb.log("{}/y_hat".format(prefix), fig, step)
-
-    # log truth
-    y_states = [cardiax.solve.State(*y.squeeze()) for y in ys[0]]
-    fig, _ = cardiax.plot.plot_states(y_states, figsize=(15, 2.5 * ys.shape[1]))
-    wandb.log("{}/y".format(prefix), fig, step)
-    # log error
-    min_time = min(ys.shape[1], ys_hat.shape[1])
-    error_states = [
-        cardiax.solve.State(*s.squeeze())
-        for s in ys_hat[0, :min_time] - ys[0, :min_time]
-    ]
-    fig, _ = cardiax.plot.plot_states(
-        error_states, vmin=-1, vmax=1, figsize=(15, 2.5 * ys_hat.shape[1])
-    )
-    wandb.log("{}/y_hat - y".format(prefix), fig, step)
-    # force update
+    log_states(xs, "inputs")
+    log_states(ys_hat, "predictions")
+    log_states(ys, "truth")
+    log_states(jnp.abs(ys_hat - ys), "L1")
+    # log_states(compute_loss(ys_hat, ys), "Our loss")
     return
 
 
-def log_train(loss, xs, ys_hat, ys, step, frequency):
-    return log(loss, xs, ys_hat, ys, step, frequency, "train")
-
-
-def log_val(loss, xs, ys_hat, ys, step, frequency):
-    return log(loss, xs, ys_hat, ys, step, frequency, "val")
-
-
-if __name__ == "__main__":
-    from argparse import ArgumentParser
-
-    parser = ArgumentParser()
-    # program
-    flags.DEFINE_integer("--seed", type=int, default=0)
-    flags.DEFINE_integer("--log_frequency", type=int, default=5)
-    flags.DEFINE_integer("--debug", action="store_true", default=False)
-
-    # model args
-    flags.DEFINE_integer("--hidden_channels", type=int, default=4)
-    flags.DEFINE_integer("--out_channels", type=int, default=3)
-    flags.DEFINE_integer("--n_heads", type=int, default=4)
-    flags.DEFINE_integer("--depth", type=int, default=5)
-    flags.DEFINE_string("--input_format", type=str, default="NCDWH")
-
-    # optimisation args
-    flags.DEFINE_integer("--lr", type=float, default=0.001)
-    flags.DEFINE_integer("--batch_size", type=int, default=4)
-    flags.DEFINE_integer("--evaluation_steps", type=int, default=20)
-    flags.DEFINE_integer("--epochs", type=int, default=100)
-    flags.DEFINE_integer("--increase_at", type=float, default=0.0)
-    flags.DEFINE_integer("--teacher_forcing_prob", type=float, default=0.0)
-    flags.DEFINE_integer("--from_checkpoint", type=str, default=None)
-
-    #  input data arguments
-    flags.DEFINE_integer("--root", type=str, default="/home/epignatelli/data/train/")
-    flags.DEFINE_integer("--size", type=int, nargs="+", default=(256, 256))
-    flags.DEFINE_integer("--frames_in", type=int, default=2)
-    flags.DEFINE_integer("--frames_out", type=int, default=1)
-    flags.DEFINE_integer("--step", type=int, default=5)
-    flags.DEFINE_integer("--refeed", type=int, default=5)
-    flags.DEFINE_integer("--preload", action="store_true", default=False)
-
-    FLAGS = flags
-    hparams = FLAGS
-
-    def main(argv):
-        # set logging level
-        logging.basicConfig(
-            stream=sys.stdout, level=logging.DEBUG if hparams.debug else logging.INFO
-        )
-        # save hparams
-        logging.info(hparams)
-        wandb.config.hparams = hparams
-        n_sequence_out = hparams.refeed * hparams.frames_out
-
-        # get data streams
-        input_shape = (
-            hparams.batch_size,
-            hparams.frames_in,
-            hparams.n_channels,
-            *hparams.size,
-        )
-        train_set = ConcatSequence(
-            root=hparams.root,
-            frames_in=hparams.frames_in,
-            frames_out=n_sequence_out,
-            step=hparams.step,
-            transform=partial(imresize, size=hparams.size, method="bilinear"),
-            keys=hparams.train_search_regex,
-            preload=hparams.preload,
-        )
-        val_set = ConcatSequence(
-            root=hparams.root,
-            frames_in=hparams.frames_in,
-            frames_out=hparams.evaluation_steps,
-            step=hparams.step,
-            transform=partial(imresize, size=hparams.size, method="bilinear"),
-            keys=hparams.val_search_regex,
-            preload=hparams.preload,
-            perc=hparams.val_perc,
-        )
-        train_dataloader = DataStream(
-            train_set, hparams.batch_size, jnp.stack, hparams.seed
-        )
-        val_dataloader = DataStream(val_set, hparams.batch_size, jnp.stack)
-
-        # init model parameters
-        rng = jax.random.PRNGKey(hparams.seed)
-        network = SelfAttentionResNet(
-            hidden_channels=hparams.n_filters,
-            n_heads=hparams.n_heads,
-            out_channels=1,
-            depth=hparams.depth,
-            input_format=(hparams.input_format, "IDWHO", hparams.input_format),
-        )
-        if hparams.from_checkpoint is not None and os.path.exists(
-            hparams.from_checkpoint
-        ):
-            with open(hparams.from_checkpoints, "rb") as f:
-                params = pickle.load(f)
-        else:
-            _, params = network.init(rng, input_shape)
-
-        # init optimiser
-        optimiser = Optimiser(optimizers.adam(hparams.lr))
-        optimiser_state = optimiser.init(params)
-
-        refeed = FLAGS.refeed
-        degub = FLAGS.debug
-        train_iteration = 0
-        val_iteration = 0
-        for i in range(hparams.epochs):
-            ## TRAINING
-            train_loss_epoch = 0.0
-            for j, batch in enumerate(train_dataloader):
-                logging.debug(batch.shape)
-                # prepare data
-                x, y = batch
-
-                # learning
-                j_train, ys_hat, optimiser_state = tbtt_step(
-                    network,
-                    optimiser,
-                    hparams.refeed,
-                    train_iteration,
-                    optimiser_state,
-                    x,
-                    y,
-                )
-                train_loss_epoch += j_train
-
-                # logging
-                log_train(j_train, x, ys_hat, y, train_iteration, hparams.log_frequency)
-
-                # prepare next iteration
-                print(
-                    "Epoch {}/{} - Training step {}/{} - Loss: {:.6f}\t\t\t".format(
-                        i, hparams.epochs, j, train_dataloader.n_batches, j_train
-                    ),
-                    end="\r",
-                )
-                train_iteration = train_iteration + 1
-                if j == 10 and hparams.debug:
-                    break
-            # checkpoint model
-            train_loss_epoch /= len(train_dataloader)
-
-            ## VALIDATING
-            # we always validate on 20 times steps
-            val_loss_epoch = 0.0
-            params = optimiser.params(optimiser_state)
-            for j, batch in enumerate(val_dataloader):
-                # prepare data
-                x, y = batch
-
-                # learning
-                j_val, ys_hat = evaluate(
-                    network, params, hparams.evaluation_steps, x, y
-                )
-                val_loss_epoch += j_val
-
-                # logging
-                log_val(val_loss_epoch, x, ys_hat, y, val_iteration, val_iteration)
-
-                # prepare next iteration
-                print(
-                    "Epoch {}/{} - Evaluation step {}/{} - Loss: {:.6f}\t\t\t".format(
-                        i, hparams.epochs, j, val_dataloader.n_batches, j_val
-                    ),
-                    end="\r",
-                )
-                val_iteration = val_iteration + 1
-                if j == 10 and hparams.debug:
-                    break
-
-            val_loss_epoch /= len(val_dataloader)
-
-            ## SCHEDULED UPDATES
-            if (
-                (i != 0)
-                and (train_loss_epoch <= hparams.increase_at)
-                and (hparams.refeed < 20)
-            ):
-                hparams.refeed = hparams.refeed + 1
-                train_dataloader.frames_out = hparams.refeed
-                assert hparams.refeed == train_dataloader.frames_out
-                logging.info(
-                    "Increasing the amount of output frames to {} \t\t\t".format(
-                        hparams.refeed
-                    )
-                )
-            wandb.log("refeed", hparams.refeed, train_iteration)
-
-        return optimiser_state
-
-    app.run(main)
+log_train = partial(log, prexit="train")
+log_val = partial(log, prexit="val")
