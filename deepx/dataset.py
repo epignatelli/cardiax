@@ -43,10 +43,6 @@ class Dataset:
     def __next__(self):
         pass
 
-    # def __del__(self):
-    #     for file in self.files:
-    #         file.close()
-
     def num_batches(self):
         return len(self) // self.batch_size
 
@@ -60,27 +56,21 @@ class Dataset:
             )
             diffusivity = jnp.array(sequence["diffusivity"])
             return states, diffusivity
-            # xs, ys = batch[: self.frames_in], batch[self.frames_in :]
-            #     :, None
-            # ]
-            # xs = jnp.concatenate(
-            #     [xs, diffusivity], axis=1
-            # )  # stacking D as a channel (v, w, u, D)
-            # return xs, ys
 
-        def pack(ss, ds):
+        def collate(ss, ds):
             xs, ys = ss.split((self.frames_in,))
-            dd = jnp.tile(ds, (1, self.frames_in, 1, 1, 1))
+            dd = jnp.broadcast_to(
+                ds, (self.batch_size, self.frames_in, 1, ds.shape[:-2])
+            )
             xs = jnp.concatenate([xs, dd])
             return xs, ys
 
+        sample_idx = lambda rng, maxval: jax.random.randint(
+            rng, (self.batch_size,), minval=0, maxval=maxval
+        )
         rng_1, rng_2 = jax.random.split(rng, 2)
-        ids = jax.random.randint(
-            rng_1, (self.batch_size,), minval=0, maxval=self._n_sequences
-        )
-        starts = jax.random.randint(
-            rng_2, (self.batch_size,), minval=0, maxval=self._sequence_len
-        )
+        ids = sample_idx(rng_1, self._n_sequences)
+        starts = sample_idx(rng_2, self._sequence_len)
 
         batch, diffusivities = [], []
         for i in range(self.batch_size):
@@ -88,7 +78,7 @@ class Dataset:
             batch.append(b)
             diffusivities.append(d)
 
-        return pack(jnp.stack(batch), jnp.stack(diffusivities))
+        return collate(jnp.stack(batch), jnp.stack(diffusivities))
 
     def increase_frames(self):
         self.frames_out += 1
