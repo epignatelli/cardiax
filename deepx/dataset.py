@@ -58,11 +58,9 @@ class Dataset:
             return states, diffusivity
 
         def collate(ss, ds):
-            xs, ys = ss.split((self.frames_in,))
-            dd = jnp.broadcast_to(
-                ds, (self.batch_size, self.frames_in, 1, ds.shape[:-2])
-            )
-            xs = jnp.concatenate([xs, dd])
+            xs, ys = ss.split((self.frames_in,), axis=1)
+            dd = jnp.tile(ds[:, None, None], (1, self.frames_in, 1, 1, 1))
+            xs = jnp.concatenate([xs, dd], axis=-3)  # channel axis
             return xs, ys
 
         sample_idx = lambda rng, maxval: jax.random.randint(

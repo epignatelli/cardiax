@@ -12,7 +12,7 @@ from helx.types import Optimiser
 from jax.experimental import optimizers
 
 import cardiax
-from deepx import saresnet
+from deepx import resnet
 from deepx.dataset import Dataset, Paramset5Dataset
 
 #  program
@@ -21,12 +21,9 @@ flags.DEFINE_integer("log_frequency", 5, "")
 flags.DEFINE_boolean("debug", False, "")
 
 #  model args
-flags.DEFINE_integer("hidden_channels", 4, "")
+flags.DEFINE_integer("hidden_channels", 8, "")
 flags.DEFINE_integer("in_channels", 4, "")
-flags.DEFINE_integer("out_channels", 3, "")
-flags.DEFINE_integer("n_heads", 4, "")
 flags.DEFINE_integer("depth", 5, "")
-flags.DEFINE_string("input_format", "NCDWH", "")
 
 #  optimisation args
 flags.DEFINE_float("lr", 0.001, "")
@@ -52,16 +49,13 @@ FLAGS = flags.FLAGS
 
 def main(argv):
     #  unroll hparams
-    hparams = saresnet.HParams(
+    hparams = resnet.HParams(
         seed=FLAGS.seed,
         log_frequency=FLAGS.log_frequency,
         debug=FLAGS.debug,
         hidden_channels=FLAGS.hidden_channels,
         in_channels=FLAGS.in_channels,
-        out_channels=FLAGS.out_channels,
-        n_heads=FLAGS.n_heads,
         depth=FLAGS.depth,
-        input_format=FLAGS.input_format,
         lr=FLAGS.lr,
         batch_size=FLAGS.batch_size,
         evaluation_steps=FLAGS.evaluation_steps,
@@ -100,29 +94,22 @@ def main(argv):
         *hparams.size,
     )
     logging.debug("Input shape is : {}".format(input_shape))
-    train_set = Dataset(
-        folder=os.path.join(hparams.root, "train"),
+    make_dataset = lambda subdir: Dataset(
+        folder=os.path.join(hparams.root, subdir),
         frames_in=hparams.frames_in,
         frames_out=n_sequence_out,
         step=hparams.step,
         batch_size=hparams.batch_size,
     )
-    val_set = Dataset(
-        folder=os.path.join(hparams.root, "val"),
-        frames_in=hparams.frames_in,
-        frames_out=n_sequence_out,
-        step=hparams.step,
-        batch_size=hparams.batch_size,
-    )
+    train_set = make_dataset("train")
+    val_set = make_dataset("val")
 
-    # init model parameters
+    # init model
     rng = jax.random.PRNGKey(hparams.seed)
-    network = saresnet.SelfAttentionResNet(
+    network = resnet.ResNet(
         hidden_channels=hparams.hidden_channels,
-        n_heads=hparams.n_heads,
-        out_channels=1,
+        out_channels=hparams.frames_out,
         depth=hparams.depth,
-        input_format=(hparams.input_format, "IDWHO", hparams.input_format),
     )
     if hparams.from_checkpoint is not None and os.path.exists(hparams.from_checkpoint):
         with open(hparams.from_checkpoint, "rb") as f:
@@ -143,7 +130,7 @@ def main(argv):
             # learning
             rng, _ = jax.random.split(rng)
             xs, ys = train_set.sample(rng)
-            j_train, ys_hat, optimiser_state = saresnet.tbtt_step(
+            j_train, ys_hat, optimiser_state = resnet.tbtt_step(
                 network,
                 optimiser,
                 refeed,
@@ -155,7 +142,7 @@ def main(argv):
             train_loss_epoch += j_train
 
             # logging
-            saresnet.log_train(
+            resnet.log_train(
                 j_train, xs, ys_hat, ys, train_iteration, hparams.log_frequency
             )
 
@@ -181,15 +168,13 @@ def main(argv):
             xs, ys = train_set.sample(rng)
 
             # learning
-            j_val, ys_hat = saresnet.evaluate(
+            j_val, ys_hat = resnet.evaluate(
                 network, hparams.evaluation_steps, params, xs, ys
             )
             val_loss_epoch += j_val
 
             # logging
-            saresnet.log_val(
-                val_loss_epoch, xs, ys_hat, ys, val_iteration, val_iteration
-            )
+            resnet.log_val(val_loss_epoch, xs, ys_hat, ys, val_iteration, val_iteration)
 
             # prepare next iteration
             print(

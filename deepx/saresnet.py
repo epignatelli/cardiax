@@ -6,12 +6,11 @@ import cardiax
 import jax
 import jax.numpy as jnp
 import wandb
-from helx.methods import module
+from helx.methods import module, batch
 from helx.types import Module, Optimiser, OptimizerState, Params, Shape
 from jax.experimental import stax
 
 
-# @module
 def SelfAttentionBlock(n_heads, input_format):
     conv_init, conv_apply = stax.GeneralConv(
         input_format, n_heads, (4, 1, 1), (1, 1, 1), "SAME"
@@ -19,40 +18,41 @@ def SelfAttentionBlock(n_heads, input_format):
 
     def init(rng, input_shape):
         rng_1, rng_2, rng_3, rng_4 = jax.random.split(rng, 4)
-        fgh = (
-            conv_init(rng_1, input_shape),
-            conv_init(rng_2, input_shape),
-            conv_init(rng_3, input_shape),
-        )
-        v = conv_init(rng_4, input_shape)
-        return (fgh, v)
+        _, f = conv_init(rng_1, input_shape)
+        _, g = conv_init(rng_2, input_shape)
+        _, h = conv_init(rng_3, input_shape)
+        _, v = conv_init(rng_4, input_shape)
+        return input_shape, (f, g, h, v)
 
-    def apply(params, inputs):
-        fgh, v = params
-        fx, gx, hx = jax.vmap(conv_apply)(fgh, inputs)
-        sx = jnp.matmul(jnp.transpose(fx, (-2, -1)), gx)
+    def apply(params, inputs, **kwargs):
+        f, g, h, v = params
+        # fx, gx, hx = jax.vmap(conv_apply, in_axes=1, out_axes=1)(
+        #     jnp.stack(fgh), jnp.stack(inputs)
+        # )
+        fx = conv_apply(f, inputs)
+        gx = conv_apply(g, inputs)
+        hx = conv_apply(h, inputs)
+        sx = jnp.matmul(jnp.swapaxes(fx, -2, -1), gx)
         sx = jax.nn.softmax(sx, axis=-2)
         sx = jnp.matmul(sx, hx)
-        vx = conv_apply(sx, v)
+        vx = conv_apply(v, sx)
         return vx
 
     return (init, apply)
 
 
-# @module
 def ConvBlock(out_channels, input_format):
     return stax.serial(
         stax.FanOut(3),
         stax.parallel(
-            stax.GeneralConv(input_format, out_channels, (4, 3, 3), (1, 2, 2), "SAME"),
-            stax.GeneralConv(input_format, out_channels, (4, 5, 5), (1, 4, 4), "SAME"),
-            stax.GeneralConv(input_format, out_channels, (4, 7, 7), (1, 5, 5), "SAME"),
+            stax.GeneralConv(input_format, out_channels, (4, 3, 3), (1, 1, 1), "SAME"),
+            stax.GeneralConv(input_format, out_channels, (4, 5, 5), (1, 1, 1), "SAME"),
+            stax.GeneralConv(input_format, out_channels, (4, 7, 7), (1, 1, 1), "SAME"),
         ),
         stax.FanInConcat(axis=-3),
     )
 
 
-# @module
 def ResBlock(out_channels, n_heads, input_format):
     return stax.serial(
         stax.FanOut(2),
@@ -150,6 +150,7 @@ def preprocess(batch):
     raise NotImplementedError
 
 
+@partial(jax.jit, static_argnums=(0,))
 def forward(
     model: Module, params: Params, x: jnp.ndarray, y: jnp.ndarray
 ) -> Tuple[float, jnp.ndarray]:
@@ -157,12 +158,16 @@ def forward(
     return (compute_loss(y_hat, y), y_hat)
 
 
+@partial(jax.jit, static_argnums=(0,))
 def backward(
     model: Module, params: Params, x: jnp.ndarray, y: jnp.ndarray
 ) -> Tuple[Tuple[float, jnp.ndarray], jnp.ndarray]:
-    return jax.value_and_grad(forward, argnums=1, has_aux=True)(model, params, x, y)
+    return jax.value_and_grad(forward, argnums=1, has_aux=True, allow_int=True)(
+        model, params, x, y
+    )
 
 
+@partial(jax.jit, static_argnums=(0, 1))
 def sgd_step(
     model: Module,
     optimiser: Optimiser,
@@ -176,7 +181,7 @@ def sgd_step(
     return loss, y_hat, optimiser.update(iteration, gradients, optimiser_state)
 
 
-@partial(jax.jit, static_argnums=(0, 1, 4))
+@partial(jax.jit, static_argnums=(0, 1, 2))
 def tbtt_step(
     model: Module,
     optimiser: Optimiser,
@@ -186,7 +191,7 @@ def tbtt_step(
     x,
     y,
 ) -> Tuple[float, jnp.ndarray, OptimizerState]:
-    def body_fun(i, inputs):
+    def body_fun(inputs, i):
         _loss0, s0, optimiser_state = inputs
         s1 = y[:, i][:, None, :, :, :]
         _loss1, y_hat, optimiser_state = sgd_step(
@@ -197,7 +202,7 @@ def tbtt_step(
         return (_loss, s0, optimiser_state), s0
 
     (loss, _, optimiser_state), ys = jax.lax.scan(
-        body_fun, (0.0, x, optimiser_state), xs=None, length=refeed
+        body_fun, (0.0, x, optimiser_state), xs=jnp.arange(refeed), length=refeed
     )
     return (loss, ys, optimiser_state)
 
