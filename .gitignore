@@ -1,6 +1,7 @@
 # vscode
 .vscode/*
 
+
 # logs
 deepexcite/lightning_logs/
 deepexcite/experiments_log/*/events.*
@@ -10,6 +11,7 @@ deepexcite/debug
 # data
 *.hdf5
 data/
+wandb/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

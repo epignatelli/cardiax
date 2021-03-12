@@ -5,6 +5,7 @@ import logging
 import numpy as onp
 import jax
 import jax.numpy as jnp
+import asyncio
 
 
 class Dataset:
@@ -29,19 +30,17 @@ class Dataset:
         #  private:
         self._n_sequences = len(self.files)
         self._sequence_len = len(self.files[0]["states"])
+        self.indices = []
         self._reset_indices()
 
     def __len__(self):
         return self._n_sequences * self._sequence_len
 
-    def __getitem__(self, idx):
-        pass
-
     def __iter__(self):
-        pass
+        return self
 
     def __next__(self):
-        pass
+        raise NotImplementedError
 
     def num_batches(self):
         return len(self) // self.batch_size
@@ -68,7 +67,9 @@ class Dataset:
         )
         rng_1, rng_2 = jax.random.split(rng, 2)
         ids = sample_idx(rng_1, self._n_sequences)
-        starts = sample_idx(rng_2, self._sequence_len)
+        starts = sample_idx(
+            rng_2, self._sequence_len - (self.frames_in + self.frames_out) * self.step
+        )
 
         batch, diffusivities = [], []
         for i in range(self.batch_size):
@@ -80,6 +81,11 @@ class Dataset:
 
     def increase_frames(self):
         self.frames_out += 1
+        logging.info(
+            "Increasing the amount of output frames to {} \t\t\t".format(
+                self.frames_out
+            )
+        )
         self._reset_indices()
 
     def _reset_indices(self):

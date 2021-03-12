@@ -12,7 +12,7 @@ from helx.types import Optimiser
 from jax.experimental import optimizers
 
 import cardiax
-from deepx import resnet
+from deepx import resnet, optimise
 from deepx.dataset import Dataset, Paramset5Dataset
 
 #  program
@@ -26,10 +26,11 @@ flags.DEFINE_integer("in_channels", 4, "")
 flags.DEFINE_integer("depth", 5, "")
 
 #  optimisation args
-flags.DEFINE_float("lr", 0.001, "")
+flags.DEFINE_float("lr", 0.0001, "")
 flags.DEFINE_integer("batch_size", 4, "")
 flags.DEFINE_integer("evaluation_steps", 20, "")
 flags.DEFINE_integer("epochs", 100, "")
+flags.DEFINE_integer("maxsteps", 100, "")
 flags.DEFINE_float("increase_at", 0.0, "")
 flags.DEFINE_float("teacher_forcing_prob", 0.0, "")
 flags.DEFINE_string("from_checkpoint", "", "")
@@ -47,37 +48,33 @@ flags.DEFINE_boolean("preload", False, "")
 FLAGS = flags.FLAGS
 
 
-def main(argv):
-    #  unroll hparams
-    hparams = resnet.HParams(
-        seed=FLAGS.seed,
-        log_frequency=FLAGS.log_frequency,
-        debug=FLAGS.debug,
-        hidden_channels=FLAGS.hidden_channels,
-        in_channels=FLAGS.in_channels,
-        depth=FLAGS.depth,
-        lr=FLAGS.lr,
-        batch_size=FLAGS.batch_size,
-        evaluation_steps=FLAGS.evaluation_steps,
-        epochs=FLAGS.epochs,
-        increase_at=FLAGS.increase_at,
-        teacher_forcing_prob=FLAGS.teacher_forcing_prob,
-        from_checkpoint=FLAGS.from_checkpoint,
-        root=FLAGS.root,
-        paramset=FLAGS.paramset,
-        size=tuple(FLAGS.size),
-        frames_in=FLAGS.frames_in,
-        frames_out=FLAGS.frames_out,
-        step=FLAGS.step,
-        refeed=FLAGS.refeed,
-        preload=FLAGS.preload,
-    )
+def train():
+    pass
 
-    # set logging level
+
+def evaluate():
+    pass
+
+
+def schedule():
+    pass
+
+
+def main(argv):
     logging.basicConfig(
-        stream=sys.stdout, level=logging.DEBUG if hparams.debug else logging.INFO
+        stream=sys.stdout, level=logging.DEBUG if FLAGS.debug else logging.INFO
     )
+    #  unroll hparams
+    logging.info("Parsing hyperparamers and initialising logger...")
+    hparams = resnet.HParams.from_flags(FLAGS)
+    refeed = hparams.refeed
+    epochs = hparams.epochs
+    maxsteps = hparams.maxsteps if not hparams.debug else 6
+    log_frequency = hparams.log_frequency
+    wandb.init(project="deepx")
+
     # save hparams
+    logging.info("Logging hyperparameters...")
     list(
         map(
             lambda i: setattr(wandb.config, hparams._fields[i], hparams[i]),
@@ -90,10 +87,11 @@ def main(argv):
     input_shape = (
         hparams.batch_size,
         hparams.frames_in,
-        4,
+        hparams.in_channels,
         *hparams.size,
     )
     logging.debug("Input shape is : {}".format(input_shape))
+    logging.info("Creating datasets...")
     make_dataset = lambda subdir: Dataset(
         folder=os.path.join(hparams.root, subdir),
         frames_in=hparams.frames_in,
@@ -105,98 +103,59 @@ def main(argv):
     val_set = make_dataset("val")
 
     # init model
+    logging.info("Initialising model...")
     rng = jax.random.PRNGKey(hparams.seed)
-    network = resnet.ResNet(
+    model = resnet.ResNet(
         hidden_channels=hparams.hidden_channels,
         out_channels=hparams.frames_out,
         depth=hparams.depth,
     )
-    if hparams.from_checkpoint is not None and os.path.exists(hparams.from_checkpoint):
-        with open(hparams.from_checkpoint, "rb") as f:
-            params = pickle.load(f)
-    else:
-        _, params = network.init(rng, input_shape)
 
     # init optimiser
+    logging.info("Initialising optimisers...")
+    _, params = model.init(rng, input_shape)
     optimiser = Optimiser(*optimizers.adam(hparams.lr))
     optimiser_state = optimiser.init(params)
-    train_iteration = 0
-    val_iteration = 0
-    refeed = hparams.refeed
-    for i in range(hparams.epochs):
+    with open("{}/{}.pickle".format(wandb.run.dir, "start"), "wb") as f:
+        pickle.dump(params, f)
+    logging.info("Starting training...")
+    for i in range(epochs):
         ## TRAINING
         train_loss_epoch = 0.0
-        for j in range(train_set.num_batches()):
-            # learning
+        for j in range(maxsteps):
+            k = (maxsteps * i) + j
             rng, _ = jax.random.split(rng)
             xs, ys = train_set.sample(rng)
-            j_train, ys_hat, optimiser_state = resnet.tbtt_step(
-                network,
-                optimiser,
-                refeed,
-                train_iteration,
-                optimiser_state,
-                xs,
-                ys,
+            j_train, ys_hat, optimiser_state = optimise.tbtt_step(
+                model, optimiser, refeed, k, optimiser_state, xs, ys
             )
             train_loss_epoch += j_train
-
-            # logging
-            resnet.log_train(
-                j_train, xs, ys_hat, ys, train_iteration, hparams.log_frequency
+            optimise.log_train(
+                i, epochs, k, maxsteps, j_train, xs, ys_hat, ys, log_frequency
             )
 
-            # prepare next iteration
-            print(
-                "Epoch {}/{} - Training step {}/{} - Loss: {:.6f}\t\t\t".format(
-                    i, hparams.epochs, j, train_set.num_batches(), j_train
-                ),
-                end="\r",
-            )
-            train_iteration = train_iteration + 1
-            if j == 10 and hparams.debug:
-                break
+        # ## VALIDATING
+        # params = optimiser.params(optimiser_state)
+        # for j in enumerate(maxsteps):
+        #     k = (maxsteps * i) + j
+        #     rng, _ = jax.random.split(rng)
+        #     xs, ys = train_set.sample(rng)
+        #     j_val, ys_hat = optimise.evaluate(
+        #         model, hparams.evaluation_steps, params, xs, ys
+        #     )
 
-        train_loss_epoch /= len(train_set)
+        #     # logging
+        #     optimise.log_val(i, epochs, k, j_val, xs, ys_hat, ys, k)
 
-        ## VALIDATING
-        val_loss_epoch = 0.0
-        params = optimiser.params(optimiser_state)
-        for j in enumerate(val_set.num_batches()):
-            # prepare data
-            rng, _ = jax.random.split(rng)
-            xs, ys = train_set.sample(rng)
-
-            # learning
-            j_val, ys_hat = resnet.evaluate(
-                network, hparams.evaluation_steps, params, xs, ys
-            )
-            val_loss_epoch += j_val
-
-            # logging
-            resnet.log_val(val_loss_epoch, xs, ys_hat, ys, val_iteration, val_iteration)
-
-            # prepare next iteration
-            print(
-                "Epoch {}/{} - Evaluation step {}/{} - Loss: {:.6f}\t\t\t".format(
-                    i, hparams.epochs, j, val_set.num_batches(), j_val
-                ),
-                end="\r",
-            )
-            val_iteration = val_iteration + 1
-            if j == 10 and hparams.debug:
-                break
-
-        val_loss_epoch /= len(val_set)
-
-        ## SCHEDULED UPDATES
+        ## SCHEDULER
+        train_loss_epoch /= train_set.num_batches()
         if (i != 0) and (train_loss_epoch <= hparams.increase_at) and (refeed < 20):
             train_set.increase_frames()
-            val_set.increase_frames()
-            logging.info(
-                "Increasing the amount of output frames to {} \t\t\t".format(refeed)
-            )
-        wandb.log("refeed", refeed, train_iteration)
+        wandb.log({"refeed": refeed}, k)
+
+        ## Save checkpoint
+        with open("{}/{}.pickle".format(wandb.run.dir, i), "wb") as f:
+            pickle.dump(params, f)
 
     return optimiser_state
 
