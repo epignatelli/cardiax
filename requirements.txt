@@ -12,4 +12,5 @@ scikit-image
 shortuuid
 uuid
 tqdm
+wandb
 git+https://github.com/epignatelli/helx
