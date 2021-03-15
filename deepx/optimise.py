@@ -5,11 +5,11 @@ from typing import NamedTuple, Tuple
 import cardiax
 import jax
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
 import wandb
-from helx.methods import module, batch
+from helx.methods import batch, module
 from helx.types import Module, Optimiser, OptimizerState, Params, Shape
-from jax.experimental import stax
-from jax.experimental import optimizers
+from jax.experimental import optimizers, stax
 
 
 def compute_loss(y_hat, y):
@@ -32,7 +32,9 @@ def compute_loss(y_hat, y):
     del_loss_x = jnp.mean((del_y_hat_x - del_y_x) ** 2)  # mse
     del_loss_y = jnp.mean((del_y_hat_y - del_y_y) ** 2)  # mse
 
-    return recon_loss + grad_loss_x + grad_loss_y + del_loss_x + del_loss_y
+    return (
+        recon_loss + 0.1 * (grad_loss_x + grad_loss_y) + 0.1 * (del_loss_x + del_loss_y)
+    )
 
 
 def preprocess(batch):
@@ -78,7 +80,10 @@ def sgd_step(
 
 
 @jax.jit
-def roll_and_replace(x0, x1):
+def roll_and_replace(
+    x0,
+    x1,
+):
     return jnp.concatenate([x0[:, 1:, :-1], x1], axis=1)
 
 
@@ -104,17 +109,17 @@ def tbtt_step(
         xs = jnp.concatenate([xs, ds], axis=2)
         return (_loss, xs, optimiser_state), ys_hat
 
-    (loss, _, optimiser_state), ys = jax.lax.scan(
-        body_fun, (0.0, x, optimiser_state), xs=jnp.arange(refeed), length=refeed
+    (loss, _, optimiser_state), ys_hat = jax.lax.scan(
+        body_fun, (0.0, x, optimiser_state), xs=jnp.arange(refeed)
     )
-    ys = jnp.swapaxes(jnp.squeeze(ys), 0, 1)
-    return (loss, ys, optimiser_state)
+    ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
+    return (loss, ys_hat, optimiser_state)
 
 
 ptbtt_step = jax.pmap(tbtt_step, static_broadcasted_argnums=(0, 1, 2))
 
 
-@partial(jax.jit, static_argnums=(0, 2))
+@partial(jax.jit, static_argnums=(0, 1))
 def evaluate(
     model: Module,
     refeed: int,
@@ -122,18 +127,19 @@ def evaluate(
     x: jnp.ndarray,
     y: jnp.ndarray,
 ) -> Tuple[float, jnp.ndarray]:
-    def body_fun(i, inputs):
-        _loss0, s0 = inputs
-        s1 = y[:, i][:, None, :, :, :]
-        _loss1, y_hat = forward(model, params, s0, s1)
+    def body_fun(inputs, i):
+        _loss0, xs = inputs
+        ds = xs[:, :, -1:]
+        ys = y[:, i][:, None, :, :, :]
+        _loss1, ys_hat = forward(model, params, xs, ys)
         _loss = _loss0 + _loss1
-        s0 = roll_and_replace(s0, y_hat)
-        carry, y = (_loss, s0), s0
-        return carry, y
+        xs = roll_and_replace(xs, ys_hat)
+        xs = jnp.concatenate([xs, ds], axis=2)
+        return (_loss, xs), ys_hat
 
-    (loss, _), ys = jax.lax.scan(body_fun, (0.0, x), xs=None, length=refeed)
-    ys = jnp.swapaxes(jnp.squeeze(ys), 0, 1)
-    return (loss, ys)
+    (loss, _), ys = jax.lax.scan(body_fun, (0.0, x), xs=jnp.arange(refeed))
+    ys_hat = jnp.swapaxes(jnp.squeeze(ys), 0, 1)
+    return (loss, ys_hat)
 
 
 pevaluate = jax.pmap(evaluate, static_broadcasted_argnums=(0, 2))
@@ -149,41 +155,43 @@ def log(
     ys_hat,
     ys,
     log_frequency,
+    global_step,
     prefix="",
 ):
     loss = float(loss)
     step = int(step)
     logging.info(
-        "Epoch {}/{} - Training step {}/{} - Loss: {:.6f}\t\t\t".format(
-            current_epoch, max_epochs, step, maxsteps, loss
+        "Epoch {}/{} - {} step {}/{} - Loss: {:.6f}\t\t\t".format(
+            current_epoch, max_epochs, prefix, step, maxsteps, loss
         ),
-        end="\r",
     )
 
     if step % log_frequency:
         return
 
-    logging.debug(xs.shape)
-    logging.debug(ys_hat.shape)
-    logging.debug(ys.shape)
-
     # log loss
-    wandb.log({"{}/loss".format(prefix): loss}, step=step)
+    wandb.log(
+        {"{}/loss".format(prefix): loss, "epoch": current_epoch, "batch": step},
+        step=global_step,
+    )
+    diffusivity = xs[:, :, -1:].squeeze()[0, -1]
 
-    def log_states(array, diffusivity, name, **kw):
+    def log_states(array, name, **kw):
         # take only first element in batch and last frame
-        d = diffusivity[0, -1]
         a = array[0, -1]
         state = cardiax.solve.State(a[0], a[1], a[2])
-        fig, _ = cardiax.plot.plot_state(state, diffusivity=d, **kw)
-        wandb.log({"{}/{}".format(prefix, name): fig}, step)
+        fig, _ = cardiax.plot.plot_state(state, diffusivity=diffusivity, **kw)
+        wandb.log(
+            {"{}/{}".format(prefix, name): fig, "epoch": current_epoch, "batch": step},
+            step=global_step,
+        )
+        plt.close(fig)
 
     # log input states
-    diffusivity = xs[:, :, -1:].squeeze()
-    log_states(xs[:, :, :3], diffusivity, "inputs")
-    log_states(ys_hat, diffusivity, "predictions")
-    log_states(ys, diffusivity, "truth")
-    log_states(jnp.abs(ys_hat - ys), diffusivity, "L1")
+    log_states(xs[:, :, :3], "inputs")
+    log_states(ys_hat, "predictions")
+    log_states(ys, "truth")
+    log_states(jnp.abs(ys_hat - ys), "L1")
     # log_states(compute_loss(ys_hat, ys), "Our loss")
     return
 
