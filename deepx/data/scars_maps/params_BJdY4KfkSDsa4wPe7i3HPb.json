@@ -1,1 +1,0 @@
-{"maxProtrudeFactorCentroid": 0.2, "r0Centroid": 1.5, "maxProtrudeFactor": 0.2, "r0": 1, "ScarScaleFactor": 0.4, "RequiredImageSize": [1200, 1200], "CONSERVATIVE_CENTROID": true, "GaussSigma": 2, "RequiredAvgEdgeSize": 30, "ADD_GAP": false, "GapFactor": 0.5}

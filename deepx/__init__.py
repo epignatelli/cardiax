@@ -1,4 +1,5 @@
 from . import dataset
+from . import optimise
 from . import generate
-
-from . import plot
+from . import resnet
+from . import saresnet

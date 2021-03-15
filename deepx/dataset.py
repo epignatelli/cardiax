@@ -1,222 +1,121 @@
-import logging
-import os
-import random
 import re
-from typing import Callable
-
+import os
 import h5py
+import logging
 import numpy as onp
 import jax
-import cardiax
+import jax.numpy as jnp
+import asyncio
 
 
-class DataStream:
-    def __init__(self, dataset, batch_size, collate_fn, seed=None):
-        # public:
-        self.dataset = dataset
+class Dataset:
+    def __init__(
+        self,
+        folder,
+        frames_in,
+        frames_out,
+        step,
+        batch_size=1,
+        re_key=".*",
+    ):
+        #  public:
+        self.folder = folder
+        self.frames_in = frames_in
+        self.frames_out = frames_out
+        self.step = step
         self.batch_size = batch_size
-        self.collate_fn = collate_fn
-        self.seed = seed
-        self.n_batches, _ = divmod(len(self.dataset), self.batch_size)
-        self.indices = onp.array(range(self.n_batches * self.batch_size))
+        self.re_key = re_key
+        self.files = [h5py.File(filepath, "r") for filepath in self._filepaths()]
 
-        # shuffling
-        if seed is not None:
-            rng = jax.random.PRNGKey(self.seed)
-            self.indices = jax.random.permutation(rng, self.indices)
-        # batching
-        self.batch_indices = iter(
-            onp.split(self.indices, self.n_batches)
-        )  # List[onp.ndarray]
+        #  private:
+        self._n_sequences = len(self.files)
+        self._sequence_len = len(self.files[0]["states"])
+        self.indices = []
+        self._reset_indices()
 
     def __len__(self):
-        return self.n_batches
+        return self._n_sequences * self._sequence_len
 
     def __iter__(self):
         return self
 
     def __next__(self):
-        indices = next(self.batch_indices)
-        batch = [self.dataset[i] for i in indices]
-        return self.collate_fn(batch)
+        raise NotImplementedError
 
-    @property
-    def frames_out(self):
-        return self.dataset.frames_out
+    def num_batches(self):
+        return len(self) // self.batch_size
 
-    @frames_out.setter
-    def frames_out(self, value):
-        self.dataset.frames_out = value
-        self.reset()
+    def sample(self, rng):
+        def _sample(i, t):
+            sequence = self.files[i]
+            states = jnp.array(
+                sequence["states"][
+                    t : t + (self.frames_in + self.frames_out) : self.step
+                ]
+            )
+            diffusivity = jnp.array(sequence["diffusivity"])
+            return states, diffusivity
+
+        def collate(ss, ds):
+            xs, ys = ss.split((self.frames_in,), axis=1)
+            dd = jnp.tile(ds[:, None, None], (1, self.frames_in, 1, 1, 1))
+            xs = jnp.concatenate([xs, dd], axis=-3)  # channel axis
+            return xs, ys
+
+        sample_idx = lambda rng, maxval: jax.random.randint(
+            rng, (self.batch_size,), minval=0, maxval=maxval
+        )
+        rng_1, rng_2 = jax.random.split(rng, 2)
+        ids = sample_idx(rng_1, self._n_sequences)
+        starts = sample_idx(
+            rng_2, self._sequence_len - (self.frames_in + self.frames_out) * self.step
+        )
+
+        batch, diffusivities = [], []
+        for i in range(self.batch_size):
+            b, d = _sample(ids[i], starts[i])
+            batch.append(b)
+            diffusivities.append(d)
+
+        return collate(jnp.stack(batch), jnp.stack(diffusivities))
 
     def increase_frames(self):
         self.frames_out += 1
-        return True
+        logging.info(
+            "Increasing the amount of output frames to {} \t\t\t".format(
+                self.frames_out
+            )
+        )
+        self._reset_indices()
 
-    def reset(self):
-        self.batch_indices = iter(onp.split(self.indices, self.n_batches))
+    def _reset_indices(self):
+        ts = onp.arange(0, len(self.files[0]["states"]))
+        idx = onp.stack([ts + len(ts) * i for i in range(len(self.files))])
+        stop = (self.frames_in + self.frames_out) * self.step
+        self.indices = idx[:, :-stop]
 
-
-class ConcatSequence:
-    def __init__(
-        self,
-        root,
-        frames_in=2,
-        frames_out=5,
-        step=5,
-        keys=None,
-        transform=None,
-        preload=False,
-        perc=1.0,
-    ):
-        # public:
-        self.root = root
-
-        # private:
-        self._frames_in = frames_in
-        self._frames_out = frames_out
-        self._step = step
-
-        if keys is None:
-            keys = ".*"
-
-        filenames = [
-            os.path.join(root, name)
-            for name in sorted(os.listdir(root))
-            if re.search(keys, name)
+    def _filepaths(self):
+        filepaths = [
+            os.path.join(self.folder, name)
+            for name in sorted(os.listdir(self.folder))
+            if re.search(self.re_key, name)
         ]
-        if len(filenames) == 0:
+        if len(filepaths) == 0:
             raise FileNotFoundError(
-                "No datasets found that match regex {} in {}".format(keys, root)
+                "No datasets found that match regex {} in {}".format(
+                    self.re_key, self.folder
+                )
             )
-
-        self.datasets = [
-            HDF5Sequence(
-                filename=filename,
-                frames_in=frames_in,
-                frames_out=frames_out,
-                step=step,
-                transform=transform,
-                preload=preload,
-                perc=perc,
-            )
-            for filename in filenames
-        ]
-        return
-
-    def __len__(self):
-        return len(self.datasets[0])
-
-    def __getitem__(self, idx):
-        dataset = random.choice(self.datasets)
-        sample = dataset[idx]
-        return sample
-
-    @property
-    def frames_in(self):
-        return self._frames_in
-
-    @frames_in.setter
-    def frames_int(self, value):
-        self._frames_in = value
-        for i in range(len(self.datasets)):
-            self.datasets[i].frames_in = value
-
-    @property
-    def frames_out(self):
-        return self._frames_out
-
-    @frames_out.setter
-    def frames_out(self, value):
-        self._frames_out = value
-        for i in range(len(self.datasets)):
-            self.datasets[i].frames_out = value
-
-    @property
-    def step(self):
-        return self._step
-
-    @step.setter
-    def step(self, value):
-        self._step = value
-        for i in range(len(self.datasets)):
-            self.datasets[i].step = value
+        return filepaths
 
 
-class HDF5Sequence:
-    def __init__(
-        self,
-        filename,
-        frames_in=1,
-        frames_out=0,
-        step=1,
-        transform=None,
-        preload=False,
-        perc=1.0,
-    ):
-        # public:
-        self.frames_in = frames_in
-        self.frames_out = frames_out
-        self.step = step
-        self.transform = transform
-        self.filename = filename
-        self.preload = preload
-        # private:
-        self._is_open = False
-        self._perc = perc
-
-        self.states = None
-        self.stimuli = None
-        self.open()
-        return
-
-    def __getitem__(self, idx):
-        # from idx of start to slice to take the sequence
-        if isinstance(idx, slice):
-            idx = slice(
-                idx.start,
-                idx.start + (self.frames_in + self.frames_out) * self.step,
-                self.step,
-            )
-        elif isinstance(idx, onp.ndarray):
-            idx = tuple(
-                [
-                    slice(
-                        i, i + (self.frames_in + self.frames_out) * self.step, self.step
-                    )
-                    for i in idx
-                ]
-            )
-        else:
-            idx = slice(
-                idx, idx + (self.frames_in + self.frames_out) * self.step, self.step
-            )
-
-        states = self.states[idx, :3]  # take only the first three channels
-
-        if self.transform is not None:
-            states = self.transform(states)
-
-        return states
-
-    def __len__(self):
-        return int(
-            (5000 - (self.frames_in + 20) * self.step) * self._perc
-        )  # hacky, this sucks - TODO(epignatelli)
-
-    def open(self):
-        file = h5py.File(self.filename, "r")
-        self.states = file["states"]
-        self.stimuli = cardiax.io.load_stimuli(file)
-        if self.preload:
-            logging.debug("Preloading dataset {}".format(self.filename))
-            if not isinstance(self.preload, Callable):
-                self.preload = onp.array
-            self.states = self.preload(self.states[:])
-        self._is_open = True
-        return
-
-
-def imresize(image, size, method):
-    shape = (*image.shape[:-2], *size)
-    return jax.image.resize(image, shape, method)
+class Paramset5Dataset(Dataset):
+    def __init__(self, folder, frames_in, frames_out, step, batch_size=1):
+        super().__init__(
+            folder,
+            frames_in,
+            frames_out,
+            step,
+            batch_size,
+            re_key=".*paramset5.*/i",
+        )
