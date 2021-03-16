@@ -48,7 +48,7 @@ class HParams(NamedTuple):
             depth=flags.depth,
             lr=flags.lr,
             batch_size=flags.batch_size,
-            lamb=lamb,
+            lamb=flags.lamb,
             evaluation_steps=flags.evaluation_steps,
             epochs=flags.epochs,
             train_maxsteps=flags.train_maxsteps,
