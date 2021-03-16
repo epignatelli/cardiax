@@ -28,6 +28,7 @@ flags.DEFINE_integer("depth", 5, "")
 #  optimisation args
 flags.DEFINE_float("lr", 0.0001, "")
 flags.DEFINE_integer("batch_size", 4, "")
+flags.DEFINE_float("lamb", 0.05, "")
 flags.DEFINE_integer("evaluation_steps", 20, "")
 flags.DEFINE_integer("epochs", 100, "")
 flags.DEFINE_integer("train_maxsteps", 100, "")
@@ -61,6 +62,7 @@ def main(argv):
     train_maxsteps = hparams.train_maxsteps if not hparams.debug else 1
     val_maxsteps = hparams.val_maxsteps if not hparams.debug else 1
     log_frequency = hparams.log_frequency
+    lamb = hparams.lamb
     wandb.init(project="deepx")
 
     #  log

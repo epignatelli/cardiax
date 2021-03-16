@@ -12,7 +12,7 @@ from helx.types import Module, Optimiser, OptimizerState, Params, Shape
 from jax.experimental import optimizers, stax
 
 
-def compute_loss(y_hat, y):
+def compute_loss(y_hat, y, lamb=0.05):
     # zero derivative
     recon_loss = jnp.mean((y_hat - y) ** 2)  # mse
 
@@ -23,6 +23,7 @@ def compute_loss(y_hat, y):
     grad_y_y = cardiax.solve.gradient(y, -2)
     grad_loss_x = jnp.mean((grad_y_hat_x - grad_y_x) ** 2)  # mse
     grad_loss_y = jnp.mean((grad_y_hat_y - grad_y_y) ** 2)  # mse
+    grad_loss = grad_loss_x + grad_loss_y
 
     # second derivative
     del_y_hat_x = cardiax.solve.gradient(grad_y_hat_x, -1)
@@ -31,10 +32,9 @@ def compute_loss(y_hat, y):
     del_y_y = cardiax.solve.gradient(grad_y_y, -1)
     del_loss_x = jnp.mean((del_y_hat_x - del_y_x) ** 2)  # mse
     del_loss_y = jnp.mean((del_y_hat_y - del_y_y) ** 2)  # mse
+    del_loss = del_loss_x + del_loss_y
 
-    return (
-        recon_loss + 0.1 * (grad_loss_x + grad_loss_y) + 0.1 * (del_loss_x + del_loss_y)
-    )
+    return (1 - lamb) * recon_loss + lamb * (grad_loss + del_loss)
 
 
 def preprocess(batch):
