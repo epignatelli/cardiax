@@ -80,40 +80,37 @@ def sgd_step(
 
 
 @jax.jit
-def roll_and_replace(
-    x0,
-    x1,
-):
-    return jnp.concatenate([x0[:, 1:, :-1], x1], axis=1)
+def refeed(x0, x1):
+    ds = x0[:, :, -1:]  # diffusivity channel
+    x1 = jnp.concatenate([x0[:, 1:, :-1], x1], axis=1)
+    x1 = jnp.concatenate([x1, ds], axis=2)
+    return x1
 
 
 @partial(jax.jit, static_argnums=(0, 1, 2))
 def tbtt_step(
     model: Module,
     optimiser: Optimiser,
-    refeed: int,
+    n_refeed: int,
     iteration: int,
     optimiser_state: OptimizerState,
-    x: jnp.ndarray,
-    y: jnp.ndarray,
+    xs: jnp.ndarray,
+    ys: jnp.ndarray,
 ) -> Tuple[float, jnp.ndarray, OptimizerState]:
     def body_fun(inputs, i):
-        _loss0, xs, optimiser_state = inputs
-        ds = xs[:, :, -1:]
-        ys = y[:, i][:, None, :, :, :]
-        _loss1, ys_hat, optimiser_state = sgd_step(
-            model, optimiser, iteration, optimiser_state, xs, ys
+        x, optimiser_state = inputs
+        y = ys[:, i][:, None, :, :, :]
+        loss, y_hat, optimiser_state = sgd_step(
+            model, optimiser, iteration, optimiser_state, x, y
         )
-        _loss = _loss0 + _loss1
-        xs = roll_and_replace(xs, ys_hat)  # roll and replace inputs with new prediction
-        xs = jnp.concatenate([xs, ds], axis=2)
-        return (_loss, xs, optimiser_state), ys_hat
+        x = refeed(x, y_hat)  # roll and replace inputs with new prediction
+        return (x, optimiser_state), (loss, y_hat)
 
-    (loss, _, optimiser_state), ys_hat = jax.lax.scan(
-        body_fun, (0.0, x, optimiser_state), xs=jnp.arange(refeed)
+    (_, optimiser_state), (losses, ys_hat) = jax.lax.scan(
+        body_fun, (xs, optimiser_state), xs=jnp.arange(n_refeed)
     )
     ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
-    return (loss, ys_hat, optimiser_state)
+    return (losses, ys_hat, optimiser_state)
 
 
 ptbtt_step = jax.pmap(tbtt_step, static_broadcasted_argnums=(0, 1, 2))
@@ -122,24 +119,21 @@ ptbtt_step = jax.pmap(tbtt_step, static_broadcasted_argnums=(0, 1, 2))
 @partial(jax.jit, static_argnums=(0, 1))
 def evaluate(
     model: Module,
-    refeed: int,
+    n_refeed: int,
     params: Params,
-    x: jnp.ndarray,
-    y: jnp.ndarray,
+    xs: jnp.ndarray,
+    ys: jnp.ndarray,
 ) -> Tuple[float, jnp.ndarray]:
     def body_fun(inputs, i):
-        _loss0, xs = inputs
-        ds = xs[:, :, -1:]
-        ys = y[:, i][:, None, :, :, :]
-        _loss1, ys_hat = forward(model, params, xs, ys)
-        _loss = _loss0 + _loss1
-        xs = roll_and_replace(xs, ys_hat)
-        xs = jnp.concatenate([xs, ds], axis=2)
-        return (_loss, xs), ys_hat
+        x = inputs
+        y = ys[:, i][:, None, :, :, :]  #  ith target frame
+        loss, y_hat = forward(model, params, x, y)
+        x = refeed(x, y_hat)  #  add the new pred to the inputs
+        return x, (loss, ys_hat)
 
-    (loss, _), ys = jax.lax.scan(body_fun, (0.0, x), xs=jnp.arange(refeed))
-    ys_hat = jnp.swapaxes(jnp.squeeze(ys), 0, 1)
-    return (loss, ys_hat)
+    _, (losses, ys_hat) = jax.lax.scan(body_fun, (0.0, xs), xs=jnp.arange(n_refeed))
+    ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
+    return (losses, ys_hat)
 
 
 pevaluate = jax.pmap(evaluate, static_broadcasted_argnums=(0, 2))

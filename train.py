@@ -122,16 +122,17 @@ def main(argv):
             global_step += 1
             rng, _ = jax.random.split(rng)
             xs, ys = train_set.sample(rng)
-            j_train, ys_hat, optimiser_state = optimise.tbtt_step(
+            train_losses_batch, ys_hat, optimiser_state = optimise.tbtt_step(
                 model, optimiser, refeed, k, optimiser_state, xs, ys
             )
-            train_loss_epoch += j_train
+            train_losses_batch = sum(train_losses_batch)
+            train_loss_epoch += sum(train_losses_batch)
             optimise.log_train(
                 i,
                 epochs,
                 k,
                 train_maxsteps,
-                j_train,
+                train_losses_batch,
                 xs,
                 ys_hat,
                 ys,
@@ -147,13 +148,14 @@ def main(argv):
             global_step += 1
             _rng_val, _ = jax.random.split(_rng_val)
             xs, ys = val_set.sample(_rng_val)
-            j_val, ys_hat = optimise.evaluate(model, refeed, params, xs, ys)
+            val_losses_batch, ys_hat = optimise.evaluate(model, refeed, params, xs, ys)
+            val_losses_batch = sum(val_losses_batch)
             optimise.log_val(
                 i,
                 epochs,
                 k,
                 val_maxsteps,
-                j_val,
+                val_losses_batch,
                 xs,
                 ys_hat,
                 ys,
