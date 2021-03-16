@@ -10,11 +10,7 @@ from termcolor import colored
 import cardiax
 import deepx
 
-flags.DEFINE_string(
-    "cuda_visible_devices",
-    "1",
-    "ID of the device to use for computation",
-)
+
 flags.DEFINE_string(
     "params",
     "3",
@@ -81,8 +77,6 @@ FLAGS = flags.FLAGS
 
 
 def main(argv):
-    os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.cuda_visible_devices
-
     paramset = getattr(cardiax.params, "PARAMSET_{}".format(FLAGS.params))
     step = FLAGS.step
     stop = FLAGS.length
