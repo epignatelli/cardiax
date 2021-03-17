@@ -5,7 +5,8 @@ module load anaconda3/personal
 module load cuda/10.2
 source activate cardiax
 
-python  --batch_size 32 /rds/general/user/sg6513/home/repos/cardiax/train.py --root '/rds/general/user/sg6513/ephemeral/data/' --log_dir /rds/general/user/sg6513/ephemeral/data/logs
+#python  --batch_size 32 /rds/general/user/sg6513/home/repos/cardiax/train.py --root '/rds/general/user/sg6513/ephemeral/data/' --log_dir /rds/general/user/sg6513/ephemeral/data/logs
+python  --batch_size 32 $HOME/repos/cardiax/train.py --root '$EPHEMERAL/data/' --log_dir '$EPHEMERAL/data/logs'
 
 mkdir $WORK/$PBS_JOBID
 cp * $WORK/$PBS_JOBID
