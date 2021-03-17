@@ -13,7 +13,7 @@ import deepx
 
 flags.DEFINE_string(
     "params",
-    "3",
+    "5",
     "Paramset from the Fenton-Cherry 2002 paper. You can choose between [1A, 1B, 1C, 1D, 1E, 2, 3, 4A, 4B, 4C, , 5, 6, 7, 8, 9, 10]",
 )
 flags.DEFINE_list(
@@ -23,7 +23,7 @@ flags.DEFINE_list(
 )
 flags.DEFINE_integer(
     "length",
-    1000,
+    100,
     "The length of the simulation in milliseconds",
 )
 flags.DEFINE_integer(
@@ -53,7 +53,7 @@ flags.DEFINE_bool(
 )
 flags.DEFINE_integer(
     "n_sequences",
-    10,
+    1,
     "Number of random sequences to generate",
 )
 flags.DEFINE_integer(

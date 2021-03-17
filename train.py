@@ -36,7 +36,7 @@ flags.DEFINE_float("teacher_forcing_prob", 0.0, "")
 flags.DEFINE_string("from_checkpoint", "", "")
 
 #  input data arguments
-flags.DEFINE_string("root", "/home/epignatelli/repos/cardiax/data/", "")
+flags.DEFINE_string("root", "/data/", "")
 flags.DEFINE_string("paramset", "paramset5", "")
 flags.DEFINE_list("size", [256, 256], "")
 flags.DEFINE_integer("frames_in", 2, "")
@@ -61,7 +61,7 @@ def main(argv):
     val_maxsteps = hparams.val_maxsteps if not hparams.debug else 1
     log_frequency = hparams.log_frequency
     lamb = hparams.lamb
-    wandb.init(project="deepx")
+    wandb.init(project="deepx-params5")
 
     #  log
     logging.info("Logging hyperparameters...")
