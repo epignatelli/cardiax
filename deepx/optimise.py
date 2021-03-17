@@ -26,15 +26,15 @@ def compute_loss(y_hat, y, lamb=0.05):
     grad_loss = grad_loss_x + grad_loss_y
 
     # second derivative
-    del_y_hat_x = cardiax.solve.gradient(grad_y_hat_x, -1)
-    del_y_hat_y = cardiax.solve.gradient(grad_y_hat_y, -1)
-    del_y_x = cardiax.solve.gradient(grad_y_x, -1)
-    del_y_y = cardiax.solve.gradient(grad_y_y, -1)
-    del_loss_x = jnp.mean((del_y_hat_x - del_y_x) ** 2)  # mse
-    del_loss_y = jnp.mean((del_y_hat_y - del_y_y) ** 2)  # mse
-    del_loss = del_loss_x + del_loss_y
+    # del_y_hat_x = cardiax.solve.gradient(grad_y_hat_x, -1)
+    # del_y_hat_y = cardiax.solve.gradient(grad_y_hat_y, -1)
+    # del_y_x = cardiax.solve.gradient(grad_y_x, -1)
+    # del_y_y = cardiax.solve.gradient(grad_y_y, -1)
+    # del_loss_x = jnp.mean((del_y_hat_x - del_y_x) ** 2)  # mse
+    # del_loss_y = jnp.mean((del_y_hat_y - del_y_y) ** 2)  # mse
+    # del_loss = del_loss_x + del_loss_y
 
-    return (1 - lamb) * recon_loss + lamb * (grad_loss + del_loss)
+    return (1 - lamb) * recon_loss + lamb * (grad_loss)
 
 
 def preprocess(batch):
