@@ -5,7 +5,8 @@ module load anaconda3/personal
 module load cuda/10.2
 source activate cardiax
 
-python  /rds/general/user/sg6513/home/repos/cardiax/make_dataset.py --file_path '/rds/general/user/sg6513/ephemeral/data/verify_{}.hdf5' --start_seed 0 --n_sequences 1000
+# $HOME = /rds/general/user/sg6513/home
+python  $HOME/repos/cardiax/make_dataset.py --file_path '/rds/general/user/sg6513/ephemeral/data/verify_{}.hdf5' --start_seed 0 --n_sequences 1000
 
 mkdir $WORK/$PBS_JOBID
 cp * $WORK/$PBS_JOBID
