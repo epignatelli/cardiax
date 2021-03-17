@@ -68,7 +68,8 @@ class Dataset:
         rng_1, rng_2 = jax.random.split(rng, 2)
         ids = sample_idx(rng_1, self._n_sequences)
         starts = sample_idx(
-            rng_2, self._sequence_len - (self.frames_in + self.frames_out) * self.step
+            rng_2,
+            self._sequence_len - (self.frames_in + self.frames_out) * self.step - 1,
         )
 
         batch, diffusivities = [], []
