@@ -102,7 +102,7 @@ def tbtt_step(
         body_fun, (xs, optimiser_state), xs=jnp.arange(n_refeed)
     )
     ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
-    return (losses, ys_hat, optimiser_state)
+    return (sum(losses), ys_hat, optimiser_state)
 
 
 @partial(jax.jit, static_argnums=(0, 1, 2))
@@ -153,7 +153,7 @@ def evaluate(
 
     _, (losses, ys_hat) = jax.lax.scan(body_fun, xs, xs=jnp.arange(n_refeed))
     ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
-    return (losses, ys_hat)
+    return (sum(losses), ys_hat)
 
 
 pevaluate = jax.pmap(evaluate, static_broadcasted_argnums=(0, 2))
