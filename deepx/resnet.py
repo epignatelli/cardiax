@@ -25,6 +25,7 @@ class HParams(NamedTuple):
     epochs: int
     train_maxsteps: int
     val_maxsteps: int
+    tbtt: bool
     increase_at: float
     teacher_forcing_prob: float
     from_checkpoint: str
@@ -53,6 +54,7 @@ class HParams(NamedTuple):
             epochs=flags.epochs,
             train_maxsteps=flags.train_maxsteps,
             val_maxsteps=flags.val_maxsteps,
+            tbtt=flags.tbtt,
             increase_at=flags.increase_at,
             teacher_forcing_prob=flags.teacher_forcing_prob,
             from_checkpoint=flags.from_checkpoint,

@@ -31,6 +31,7 @@ flags.DEFINE_integer("evaluation_steps", 20, "")
 flags.DEFINE_integer("epochs", 100, "")
 flags.DEFINE_integer("train_maxsteps", 100, "")
 flags.DEFINE_integer("val_maxsteps", 10, "")
+flags.DEFINE_bool("tbtt", True, "")
 flags.DEFINE_float("increase_at", 0.01, "")
 flags.DEFINE_float("teacher_forcing_prob", 0.0, "")
 flags.DEFINE_string("from_checkpoint", "", "")
@@ -61,6 +62,7 @@ def main(argv):
     val_maxsteps = hparams.val_maxsteps if not hparams.debug else 1
     log_frequency = hparams.log_frequency
     lamb = hparams.lamb
+    tbtt = hparams.tbtt
     wandb.init(project="deepx")
 
     #  log
@@ -112,6 +114,8 @@ def main(argv):
         pickle.dump(params, f)
     logging.info("Starting training...")
     global_step = 0
+
+    update = optimise.tbtt_step if hparams.tbtt else optimise.btt_step
     for i in range(epochs):
         #  train
         train_loss_epoch = 0.0
@@ -120,7 +124,7 @@ def main(argv):
             global_step += 1
             rng, _ = jax.random.split(rng)
             xs, ys = train_set.sample(rng)
-            j_train, ys_hat, optimiser_state = optimise.btt_step(
+            j_train, ys_hat, optimiser_state = update(
                 model, optimiser, refeed, k, optimiser_state, xs, ys
             )
             train_loss_epoch += j_train
