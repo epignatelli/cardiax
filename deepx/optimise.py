@@ -14,15 +14,15 @@ from jax.experimental import optimizers, stax
 
 def compute_loss(y_hat, y, lamb=0.05):
     # zero derivative
-    recon_loss = jnp.mean((y_hat - y) ** 2)  # mse
+    recon_loss = jnp.sqrt(jnp.mean((y_hat - y) ** 2))  # rmse
 
     # first derivative
     grad_y_hat_x = cardiax.solve.gradient(y_hat, -1)
     grad_y_hat_y = cardiax.solve.gradient(y_hat, -2)
     grad_y_x = cardiax.solve.gradient(y, -1)
     grad_y_y = cardiax.solve.gradient(y, -2)
-    grad_loss_x = jnp.mean((grad_y_hat_x - grad_y_x) ** 2)  # mse
-    grad_loss_y = jnp.mean((grad_y_hat_y - grad_y_y) ** 2)  # mse
+    grad_loss_x = jnp.sqrt(jnp.mean((grad_y_hat_x - grad_y_x) ** 2))  # rmse
+    grad_loss_y = jnp.sqrt(jnp.mean((grad_y_hat_y - grad_y_y) ** 2))  # rmse
     grad_loss = grad_loss_x + grad_loss_y
 
     # second derivative
