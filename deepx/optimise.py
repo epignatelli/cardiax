@@ -129,9 +129,9 @@ def evaluate(
         y = ys[:, i][:, None, :, :, :]  #  ith target frame
         loss, y_hat = forward(model, params, x, y)
         x = refeed(x, y_hat)  #  add the new pred to the inputs
-        return x, (loss, ys_hat)
+        return x, (loss, y_hat)
 
-    _, (losses, ys_hat) = jax.lax.scan(body_fun, (0.0, xs), xs=jnp.arange(n_refeed))
+    _, (losses, ys_hat) = jax.lax.scan(body_fun, xs, xs=jnp.arange(n_refeed))
     ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
     return (losses, ys_hat)
 

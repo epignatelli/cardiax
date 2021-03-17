@@ -123,7 +123,8 @@ def main(argv):
             train_losses_batch, ys_hat, optimiser_state = optimise.tbtt_step(
                 model, optimiser, refeed, k, optimiser_state, xs, ys
             )
-            train_loss_epoch += sum(train_losses_batch)
+            train_losses_batch = sum(train_losses_batch)
+            train_loss_epoch += train_losses_batch
             optimise.log_train(
                 i,
                 epochs,
