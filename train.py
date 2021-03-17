@@ -2,7 +2,6 @@ import logging
 import os
 import pickle
 import sys
-from functools import partial
 
 import jax
 import jax.numpy as jnp
@@ -11,9 +10,8 @@ from absl import app, flags
 from helx.types import Optimiser
 from jax.experimental import optimizers
 
-import cardiax
 from deepx import resnet, optimise
-from deepx.dataset import Dataset, Paramset5Dataset
+from deepx.dataset import Dataset
 
 #  program
 flags.DEFINE_integer("seed", 0, "")
@@ -125,7 +123,6 @@ def main(argv):
             train_losses_batch, ys_hat, optimiser_state = optimise.tbtt_step(
                 model, optimiser, refeed, k, optimiser_state, xs, ys
             )
-            train_losses_batch = sum(train_losses_batch)
             train_loss_epoch += sum(train_losses_batch)
             optimise.log_train(
                 i,
