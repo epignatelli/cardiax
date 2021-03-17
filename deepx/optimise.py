@@ -50,15 +50,6 @@ def forward(
     return (loss, y_hat)
 
 
-@partial(jax.jit, static_argnums=(0,))
-def backward(
-    model: Module, params: Params, x: jnp.ndarray, y: jnp.ndarray
-) -> Tuple[Tuple[float, jnp.ndarray], jnp.ndarray]:
-    return jax.value_and_grad(forward, argnums=1, has_aux=True, allow_int=True)(
-        model, params, x, y
-    )
-
-
 @jax.jit
 def postprocess_gradients(gradients):
     return optimizers.clip_grads(gradients, 1.0)
@@ -74,6 +65,7 @@ def sgd_step(
     y: jnp.ndarray,
 ) -> Tuple[float, jnp.ndarray, OptimizerState]:
     params = optimiser.params(optimiser_state)
+    backward = jax.value_and_grad(forward, argnums=1, has_aux=True, allow_int=True)
     (loss, y_hat), gradients = backward(model, params, x, y)
     gradients = postprocess_gradients(gradients)
     return loss, y_hat, optimiser.update(iteration, gradients, optimiser_state)
@@ -113,7 +105,35 @@ def tbtt_step(
     return (losses, ys_hat, optimiser_state)
 
 
-ptbtt_step = jax.pmap(tbtt_step, static_broadcasted_argnums=(0, 1, 2))
+@partial(jax.jit, static_argnums=(0, 1, 2))
+def btt_step(
+    model: Module,
+    optimiser: Optimiser,
+    n_refeed: int,
+    iteration: int,
+    optimiser_state: OptimizerState,
+    xs: jnp.ndarray,
+    ys: jnp.ndarray,
+) -> Tuple[float, jnp.ndarray, OptimizerState]:
+    @jax.checkpoint
+    def body_fun(inputs, i):
+        x, _params = inputs
+        y = ys[:, i][:, None, :, :, :]
+        loss, y_hat = forward(model, _params, x, y)
+        x = refeed(x, y_hat)  # roll and replace inputs with new prediction
+        return x, (loss, y_hat)
+
+    def f(xs):
+        _, (losses, ys_hat) = jax.lax.scan(body_fun, xs, xs=jnp.arange(n_refeed))
+        ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
+        return losses, ys_hat
+
+    params = optimiser.params(optimiser_state)
+    btt = jax.value_and_grad(f, has_aux=True, argnums=1, allow_int=True)
+    (losses, ys_hat), grads = btt(xs, params)
+    grads = postprocess_gradients(grads)
+    optimiser_state = optimiser.update(iteration, grads, optimiser_state)
+    return (losses, ys_hat, optimiser_state)
 
 
 @partial(jax.jit, static_argnums=(0, 1))
