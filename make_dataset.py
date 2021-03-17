@@ -53,7 +53,7 @@ flags.DEFINE_bool(
 )
 flags.DEFINE_integer(
     "n_sequences",
-    1,
+    4,
     "Number of random sequences to generate",
 )
 flags.DEFINE_integer(

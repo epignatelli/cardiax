@@ -11,6 +11,7 @@ scikit-learn
 scikit-image
 shortuuid
 uuid
+termcolor
 tqdm
 wandb
 git+https://github.com/epignatelli/helx

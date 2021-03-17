@@ -36,7 +36,7 @@ flags.DEFINE_float("teacher_forcing_prob", 0.0, "")
 flags.DEFINE_string("from_checkpoint", "", "")
 
 #  input data arguments
-flags.DEFINE_string("root", "/data/", "")
+flags.DEFINE_string("root", "/mnt/c/Users/garas/OneDrive - University of Greenwich/Documents/projects/cardiac-modelling/cardiax/data/", "")
 flags.DEFINE_string("paramset", "paramset5", "")
 flags.DEFINE_list("size", [256, 256], "")
 flags.DEFINE_integer("frames_in", 2, "")
