@@ -50,7 +50,7 @@ class Dataset:
             sequence = self.files[i]
             states = jnp.array(
                 sequence["states"][
-                    t : t + (self.frames_in + self.frames_out) : self.step
+                    t : t + (self.frames_in + self.frames_out) * self.step : self.step
                 ]
             )
             diffusivity = jnp.array(sequence["diffusivity"])
@@ -69,9 +69,8 @@ class Dataset:
         ids = sample_idx(rng_1, self._n_sequences)
         starts = sample_idx(
             rng_2,
-            self._sequence_len - (self.frames_in + self.frames_out) * self.step - 1,
+            self._sequence_len - (self.frames_in + self.frames_out) * self.step,
         )
-
         batch, diffusivities = [], []
         for i in range(self.batch_size):
             b, d = _sample(ids[i], starts[i])
