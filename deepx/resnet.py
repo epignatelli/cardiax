@@ -73,7 +73,6 @@ def ResidualBlock(out_channels, kernel_size, stride, padding, input_format):
     double_conv = stax.serial(
         stax.GeneralConv(input_format, out_channels, kernel_size, stride, padding),
         stax.Elu,
-        stax.GeneralConv(input_format, out_channels, kernel_size, stride, padding),
     )
     return Module(
         *stax.serial(
