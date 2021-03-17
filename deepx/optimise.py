@@ -121,19 +121,21 @@ def btt_step(
         y = ys[:, i][:, None, :, :, :]
         loss, y_hat = forward(model, _params, x, y)
         x = refeed(x, y_hat)  # roll and replace inputs with new prediction
-        return x, (loss, y_hat)
+        return (x, _params), (loss, y_hat)
 
-    def f(xs):
-        _, (losses, ys_hat) = jax.lax.scan(body_fun, xs, xs=jnp.arange(n_refeed))
+    def f(xs, params):
+        _, (losses, ys_hat) = jax.lax.scan(
+            body_fun, (xs, params), xs=jnp.arange(n_refeed)
+        )
         ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
-        return losses, ys_hat
+        return sum(losses), ys_hat
 
     params = optimiser.params(optimiser_state)
     btt = jax.value_and_grad(f, has_aux=True, argnums=1, allow_int=True)
-    (losses, ys_hat), grads = btt(xs, params)
+    (loss, ys_hat), grads = btt(xs, params)
     grads = postprocess_gradients(grads)
     optimiser_state = optimiser.update(iteration, grads, optimiser_state)
-    return (losses, ys_hat, optimiser_state)
+    return (loss, ys_hat, optimiser_state)
 
 
 @partial(jax.jit, static_argnums=(0, 1))
