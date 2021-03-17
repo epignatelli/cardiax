@@ -5,4 +5,4 @@ module load anaconda3/personal
 module load cuda/10.2
 source activate cardiax
 
-python /rds/general/user/sg6513/home/repos/cardiax/train.py --frames_in 3 --frames_out 1 --step 5 --n_layers 20 --n_filters 16 --lr 0.0001 --n_workers 12 --gpu -1 --n_workers 3 --distributed_backend ddp --root '/rds/general/user/sg6513/ephemeral/data/' --logdir /rds/general/user/sg6513/ephemeral/data/logs --batch_size 32
+python  --batch_size 32 /rds/general/user/sg6513/home/repos/cardiax/train.py --root '/rds/general/user/sg6513/ephemeral/data/' --log_dir /rds/general/user/sg6513/ephemeral/data/logs
