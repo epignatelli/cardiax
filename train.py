@@ -24,7 +24,8 @@ flags.DEFINE_integer("in_channels", 4, "")
 flags.DEFINE_integer("depth", 5, "")
 
 #  optimisation args
-flags.DEFINE_float("lr", 0.0001, "")
+flags.DEFINE_float("lr", 0.001, "")
+flags.DEFINE_float("grad_norm", 1.0, "")
 flags.DEFINE_integer("batch_size", 4, "")
 flags.DEFINE_float("lamb", 0.05, "")
 flags.DEFINE_integer("evaluation_steps", 20, "")

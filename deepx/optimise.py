@@ -52,7 +52,8 @@ def forward(
 
 @jax.jit
 def postprocess_gradients(gradients):
-    return optimizers.clip_grads(gradients, 1.0)
+    return gradients
+    # return optimizers.clip_grads(gradients, 1.0)
 
 
 @partial(jax.jit, static_argnums=(0, 1))

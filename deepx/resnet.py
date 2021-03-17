@@ -19,6 +19,7 @@ class HParams(NamedTuple):
     in_channels: int
     depth: int
     lr: float
+    grad_norm: float
     batch_size: int
     lamb: float
     evaluation_steps: int
@@ -48,6 +49,7 @@ class HParams(NamedTuple):
             in_channels=flags.in_channels,
             depth=flags.depth,
             lr=flags.lr,
+            grad_norm=flags.grad_norm,
             batch_size=flags.batch_size,
             lamb=flags.lamb,
             evaluation_steps=flags.evaluation_steps,
