@@ -98,12 +98,12 @@ def Euler(axis=1):
 def ResNet(hidden_channels, out_channels, depth):
     residual = stax.serial(
         stax.GeneralConv(
-            ("NCDWH", "IDWHO", "NCDWH"), hidden_channels, (4, 5, 5), (1, 1, 1), "SAME"
+            ("NCDWH", "IDWHO", "NCDWH"), hidden_channels, (4, 3, 3), (1, 1, 1), "SAME"
         ),
         *[
             ResidualBlock(
                 hidden_channels,
-                (4, 5, 5),
+                (4, 3, 3),
                 (1, 1, 1),
                 "SAME",
                 ("NCDWH", "IDWHO", "NCDWH"),
@@ -111,8 +111,8 @@ def ResNet(hidden_channels, out_channels, depth):
             for _ in range(depth)
         ],
         stax.GeneralConv(
-            ("NCDWH", "IDWHO", "NCDWH"), out_channels, (4, 5, 5), (1, 1, 1), "SAME"
+            ("NCDWH", "IDWHO", "NCDWH"), out_channels, (4, 3, 3), (1, 1, 1), "SAME"
         ),
-        stax.GeneralConv(("NDCWH", "IDWHO", "NDCWH"), 3, (3, 5, 5), (1, 1, 1), "SAME")
+        stax.GeneralConv(("NDCWH", "IDWHO", "NDCWH"), 3, (3, 3, 3), (1, 1, 1), "SAME")
     )
     return stax.serial(stax.FanOut(2), stax.parallel(stax.Identity, residual), Euler())
