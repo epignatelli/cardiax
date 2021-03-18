@@ -87,15 +87,15 @@ def main(argv):
     )
     logging.debug("Input shape is : {}".format(input_shape))
     logging.info("Creating datasets...")
-    make_dataset = lambda subdir: Dataset(
+    make_dataset = lambda subdir, n: Dataset(
         folder=os.path.join(hparams.root, subdir),
         frames_in=hparams.frames_in,
-        frames_out=n_sequence_out,
+        frames_out=n,
         step=hparams.step,
         batch_size=hparams.batch_size,
     )
-    train_set = make_dataset("train")
-    val_set = make_dataset("val")
+    train_set = make_dataset("train", n_sequence_out)
+    val_set = make_dataset("val", hparams.val_refeed)
 
     #  init
     logging.info("Initialising model...")
