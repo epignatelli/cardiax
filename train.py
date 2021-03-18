@@ -169,14 +169,7 @@ def main(argv):
                 global_step,
             )
 
-        #  test
-        _rng_val = rng_val
-        for j in range(val_maxsteps):
-            k = (val_maxsteps * i) + j
-            global_step += 1
-            _rng_val, _ = jax.random.split(_rng_val)
-            batch = test_set.sample(_rng_val)
-            xs, ys = optimise.preprocess(batch)
+            # test
             j_val, ys_hat = optimise.evaluate(model, test_refeed, params, xs, ys)
             optimise.log_test(
                 i,

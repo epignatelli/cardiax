@@ -63,7 +63,7 @@ class Dataset:
             return states, diffusivity
 
         def collate(ss, ds):
-            xs, ys = ss.split((self.frames_in,), axis=1)
+            xs, ys = onp.split(ss, (self.frames_in,), axis=1)
             dd = onp.tile(ds[:, None, None], (1, self.frames_in, 1, 1, 1))
             xs = onp.concatenate([xs, dd], axis=-3)  # channel axis
             xs = self.split_for_devices(xs)
@@ -84,8 +84,8 @@ class Dataset:
             b, d = _sample(ids[i], starts[i])
             batch.append(b)
             diffusivities.append(d)
-
-        return collate(onp.stack(batch), onp.stack(diffusivities))
+        xs, ys = collate(onp.stack(batch), onp.stack(diffusivities))
+        return xs, ys
 
     def increase_frames(self):
         self.frames_out += 1

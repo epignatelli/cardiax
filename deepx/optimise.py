@@ -24,16 +24,6 @@ def compute_loss(y_hat, y, lamb=0.05):
     grad_loss_x = jnp.sqrt(jnp.mean((grad_y_hat_x - grad_y_x) ** 2))  # rmse
     grad_loss_y = jnp.sqrt(jnp.mean((grad_y_hat_y - grad_y_y) ** 2))  # rmse
     grad_loss = grad_loss_x + grad_loss_y
-
-    # second derivative
-    # del_y_hat_x = cardiax.solve.gradient(grad_y_hat_x, -1)
-    # del_y_hat_y = cardiax.solve.gradient(grad_y_hat_y, -1)
-    # del_y_x = cardiax.solve.gradient(grad_y_x, -1)
-    # del_y_y = cardiax.solve.gradient(grad_y_y, -1)
-    # del_loss_x = jnp.mean((del_y_hat_x - del_y_x) ** 2)  # mse
-    # del_loss_y = jnp.mean((del_y_hat_y - del_y_y) ** 2)  # mse
-    # del_loss = del_loss_x + del_loss_y
-
     return (1 - lamb) * recon_loss + lamb * (grad_loss)
 
 
@@ -45,7 +35,6 @@ def preprocess(batch):
     return batch
 
 
-@partial(jax.jit, static_argnums=(0,))
 def forward(
     model: Module, params: Params, x: jnp.ndarray, y: jnp.ndarray
 ) -> Tuple[float, jnp.ndarray]:
@@ -54,12 +43,10 @@ def forward(
     return (loss, y_hat)
 
 
-@jax.jit
 def postprocess_gradients(gradients):
     return optimizers.clip_grads(gradients, 1.0)
 
 
-@partial(jax.jit, static_argnums=(0, 1))
 def sgd_step(
     model: Module,
     optimiser: Optimiser,
@@ -75,7 +62,6 @@ def sgd_step(
     return loss, y_hat, optimiser.update(iteration, gradients, optimiser_state)
 
 
-@jax.jit
 def refeed(x0, x1):
     ds = x0[:, :, -1:]  # diffusivity channel
     x1 = jnp.concatenate([x0[:, 1:, :-1], x1], axis=1)
@@ -83,11 +69,11 @@ def refeed(x0, x1):
     return x1
 
 
-# @partial(jax.jit, static_argnums=(0, 1, 2))
 @partial(
     jax.pmap,
     in_axes=(None, None, None, None, None, 0, 0),
     static_broadcasted_argnums=(0, 1, 2),
+    axis_name="device"
 )
 def tbtt_step(
     model: Module,
@@ -111,15 +97,16 @@ def tbtt_step(
         body_fun, (xs, optimiser_state), xs=jnp.arange(n_refeed)
     )
     ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
+    losses = jax.lax.pmean(losses, axis_name="device")
     return (sum(losses), ys_hat, optimiser_state)
 
 
 @partial(
     jax.pmap,
-    in_axes=(None, None, None, None, None, 0, 0),
+    in_axes=(None, None, None, None, 0, 0, 0),
     static_broadcasted_argnums=(0, 1, 2),
+    axis_name="device"
 )
-@partial(jax.jit, static_argnums=(0, 1, 2))
 def btt_step(
     model: Module,
     optimiser: Optimiser,
@@ -145,18 +132,20 @@ def btt_step(
         return sum(losses), ys_hat
 
     params = optimiser.params(optimiser_state)
-    btt = jax.value_and_grad(f, has_aux=True, argnums=1, allow_int=True)
+    btt = jax.value_and_grad(f, has_aux=True, argnums=1)
     (loss, ys_hat), grads = btt(xs, params)
     grads = postprocess_gradients(grads)
+    grads = jax.lax.pmean(grads, axis_name="device")
+    loss = jax.lax.pmean(loss, axis_name="device")
     optimiser_state = optimiser.update(iteration, grads, optimiser_state)
     return (loss, ys_hat, optimiser_state)
 
 
-# @partial(jax.jit, static_argnums=(0, 1))
 @partial(
     jax.pmap,
     in_axes=(None, None, 0, 0, 0),
     static_broadcasted_argnums=(0, 1),
+    axis_name="device"
 )
 def evaluate(
     model: Module,
@@ -174,6 +163,7 @@ def evaluate(
 
     _, (losses, ys_hat) = jax.lax.scan(body_fun, xs, xs=jnp.arange(n_refeed))
     ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
+    losses = jax.lax.pmean(losses, axis_name="device")
     return (sum(losses), ys_hat)
 
 
@@ -210,7 +200,7 @@ def log(
 
     def log_states(array, name, **kw):
         # take only first element in batch and last frame
-        a = array[0, -1]
+        a = array[0, 0, -1]  # (device, batch, t, c, w, h)
         state = cardiax.solve.State(a[0], a[1], a[2])
         fig, _ = cardiax.plot.plot_state(state, diffusivity=diffusivity, **kw)
         wandb.log(

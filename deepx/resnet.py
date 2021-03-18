@@ -120,13 +120,12 @@ def ResNet(hidden_channels, out_channels, depth):
     )
 
     model = Module(
-        stax.serial(stax.FanOut(2), stax.parallel(stax.Identity, residual), Euler())
+        *stax.serial(stax.FanOut(2), stax.parallel(stax.Identity, residual), Euler())
     )
 
     def init(input_shape, rng):
         output_shape, params = model.init(input_shape, rng)
-        if n_devices := jax.local_device_count() > 1:
-            params = jax.tree_map(lambda x: jnp.array([x] * n_devices), params)
+        params = jax.tree_map(lambda x: jnp.array([x] * jax.local_device_count()), params)
         return output_shape, params
 
     return (init, model.apply)
