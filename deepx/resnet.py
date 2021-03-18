@@ -118,4 +118,16 @@ def ResNet(hidden_channels, out_channels, depth):
         ),
         stax.GeneralConv(("NDCWH", "IDWHO", "NDCWH"), 3, (3, 3, 3), (1, 1, 1), "SAME")
     )
-    return stax.serial(stax.FanOut(2), stax.parallel(stax.Identity, residual), Euler())
+
+    model = Module(
+        stax.serial(stax.FanOut(2), stax.parallel(stax.Identity, residual), Euler())
+    )
+    n_devices = jax.local_device_count()
+
+    def init(input_shape, rng):
+        output_shape, params = model.init(input_shape, rng)
+        if n_devices > 1:
+            params = jax.tree_map(lambda x: jnp.array([x] * n_devices), params)
+        return output_shape, params
+
+    return (init, model.apply)
