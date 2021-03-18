@@ -66,9 +66,8 @@ class Dataset:
             xs, ys = ss.split((self.frames_in,), axis=1)
             dd = onp.tile(ds[:, None, None], (1, self.frames_in, 1, 1, 1))
             xs = onp.concatenate([xs, dd], axis=-3)  # channel axis
-            if self.n_devices > 1:
-                xs = self.split_for_devices(xs)
-                ys = self.split_for_devices(ys)
+            xs = self.split_for_devices(xs)
+            ys = self.split_for_devices(ys)
             return xs, ys
 
         sample_idx = lambda rng, maxval: jax.random.randint(
