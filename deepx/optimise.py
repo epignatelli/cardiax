@@ -38,7 +38,11 @@ def compute_loss(y_hat, y, lamb=0.05):
 
 
 def preprocess(batch):
-    raise NotImplementedError
+    xs, ys = batch
+    mu, sigma = xs.mean(), xs.std()
+    normalise = lambda x: (x - mu) / sigma
+    batch = normalise(xs), normalise(ys)
+    return batch
 
 
 @partial(jax.jit, static_argnums=(0,))
@@ -52,8 +56,7 @@ def forward(
 
 @jax.jit
 def postprocess_gradients(gradients):
-    return gradients
-    # return optimizers.clip_grads(gradients, 1.0)
+    return optimizers.clip_grads(gradients, 1.0)
 
 
 @partial(jax.jit, static_argnums=(0, 1))

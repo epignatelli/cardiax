@@ -45,6 +45,7 @@ flags.DEFINE_integer("frames_in", 2, "")
 flags.DEFINE_integer("frames_out", 1, "")
 flags.DEFINE_integer("step", 1, "")
 flags.DEFINE_integer("refeed", 5, "")
+flags.DEFINE_integer("val_refeed", 20, "")
 flags.DEFINE_boolean("preload", False, "")
 
 FLAGS = flags.FLAGS
@@ -58,6 +59,7 @@ def main(argv):
     logging.info("Parsing hyperparamers and initialising logger...")
     hparams = resnet.HParams.from_flags(FLAGS)
     refeed = hparams.refeed
+    val_refeed = hparams.val_refeed
     epochs = hparams.epochs
     train_maxsteps = hparams.train_maxsteps if not hparams.debug else 1
     val_maxsteps = hparams.val_maxsteps if not hparams.debug else 1
@@ -124,7 +126,8 @@ def main(argv):
             k = (train_maxsteps * i) + j
             global_step += 1
             rng, _ = jax.random.split(rng)
-            xs, ys = train_set.sample(rng)
+            batch = train_set.sample(rng)
+            xs, ys = optimise.preprocess(batch)
             j_train, ys_hat, optimiser_state = update(
                 model, optimiser, refeed, k, optimiser_state, xs, ys
             )
@@ -149,8 +152,9 @@ def main(argv):
             k = (val_maxsteps * i) + j
             global_step += 1
             _rng_val, _ = jax.random.split(_rng_val)
-            xs, ys = val_set.sample(_rng_val)
-            j_val, ys_hat = optimise.evaluate(model, refeed, params, xs, ys)
+            batch = val_set.sample(_rng_val)
+            xs, ys = optimise.preprocess(batch)
+            j_val, ys_hat = optimise.evaluate(model, val_refeed, params, xs, ys)
             optimise.log_val(
                 i,
                 epochs,
