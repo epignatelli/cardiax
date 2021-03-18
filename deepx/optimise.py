@@ -83,7 +83,12 @@ def refeed(x0, x1):
     return x1
 
 
-@partial(jax.jit, static_argnums=(0, 1, 2))
+# @partial(jax.jit, static_argnums=(0, 1, 2))
+@partial(
+    jax.pmap,
+    in_axes=(None, None, None, None, None, 0, 0),
+    static_broadcasted_argnums=(0, 1, 2),
+)
 def tbtt_step(
     model: Module,
     optimiser: Optimiser,
@@ -109,6 +114,11 @@ def tbtt_step(
     return (sum(losses), ys_hat, optimiser_state)
 
 
+@partial(
+    jax.pmap,
+    in_axes=(None, None, None, None, None, 0, 0),
+    static_broadcasted_argnums=(0, 1, 2),
+)
 @partial(jax.jit, static_argnums=(0, 1, 2))
 def btt_step(
     model: Module,
@@ -142,7 +152,12 @@ def btt_step(
     return (loss, ys_hat, optimiser_state)
 
 
-@partial(jax.jit, static_argnums=(0, 1))
+# @partial(jax.jit, static_argnums=(0, 1))
+@partial(
+    jax.pmap,
+    in_axes=(None, None, 0, 0, 0),
+    static_broadcasted_argnums=(0, 1),
+)
 def evaluate(
     model: Module,
     n_refeed: int,
@@ -160,9 +175,6 @@ def evaluate(
     _, (losses, ys_hat) = jax.lax.scan(body_fun, xs, xs=jnp.arange(n_refeed))
     ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
     return (sum(losses), ys_hat)
-
-
-pevaluate = jax.pmap(evaluate, static_broadcasted_argnums=(0, 2))
 
 
 def log(
