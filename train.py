@@ -26,6 +26,7 @@ flags.DEFINE_integer("depth", 5, "")
 #  optimisation args
 flags.DEFINE_float("lr", 0.001, "")
 flags.DEFINE_float("grad_norm", 1.0, "")
+flags.DEFINE_bool("normalise", False, "")
 flags.DEFINE_integer("batch_size", 4, "")
 flags.DEFINE_float("lamb", 0.05, "")
 flags.DEFINE_integer("evaluation_steps", 20, "")
@@ -128,7 +129,7 @@ def main(argv):
             global_step += 1
             rng, _ = jax.random.split(rng)
             batch = train_set.sample(rng)
-            xs, ys = optimise.preprocess(batch)
+            xs, ys = optimise.preprocess(batch) if hparams.normalise else batch
             j_train, ys_hat, optimiser_state = update(
                 model, optimiser, refeed, k, optimiser_state, xs, ys
             )
@@ -154,7 +155,7 @@ def main(argv):
             global_step += 1
             _rng_val, _ = jax.random.split(_rng_val)
             batch = val_set.sample(_rng_val)
-            xs, ys = optimise.preprocess(batch)
+            xs, ys = optimise.preprocess(batch) if hparams.normalise else batch
             j_val, ys_hat = optimise.evaluate(model, refeed, params, xs, ys)
             optimise.log_val(
                 i,
@@ -169,7 +170,7 @@ def main(argv):
                 global_step,
             )
 
-            # test
+            #  test
             j_val, ys_hat = optimise.evaluate(model, test_refeed, params, xs, ys)
             optimise.log_test(
                 i,
