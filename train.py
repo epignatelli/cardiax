@@ -45,7 +45,7 @@ flags.DEFINE_integer("frames_in", 2, "")
 flags.DEFINE_integer("frames_out", 1, "")
 flags.DEFINE_integer("step", 1, "")
 flags.DEFINE_integer("refeed", 5, "")
-flags.DEFINE_integer("val_refeed", 20, "")
+flags.DEFINE_integer("test_refeed", 20, "")
 flags.DEFINE_boolean("preload", False, "")
 
 FLAGS = flags.FLAGS
@@ -59,7 +59,7 @@ def main(argv):
     logging.info("Parsing hyperparamers and initialising logger...")
     hparams = resnet.HParams.from_flags(FLAGS)
     refeed = hparams.refeed
-    val_refeed = hparams.val_refeed
+    test_refeed = hparams.test_refeed
     epochs = hparams.epochs
     train_maxsteps = hparams.train_maxsteps if not hparams.debug else 1
     val_maxsteps = hparams.val_maxsteps if not hparams.debug else 1
@@ -95,7 +95,8 @@ def main(argv):
         batch_size=hparams.batch_size,
     )
     train_set = make_dataset("train", n_sequence_out)
-    val_set = make_dataset("val", hparams.val_refeed)
+    val_set = make_dataset("val", n_sequence_out)
+    test_set = make_dataset("test", hparams.test_refeed)
 
     #  init
     logging.info("Initialising model...")
@@ -154,8 +155,30 @@ def main(argv):
             _rng_val, _ = jax.random.split(_rng_val)
             batch = val_set.sample(_rng_val)
             xs, ys = optimise.preprocess(batch)
-            j_val, ys_hat = optimise.evaluate(model, val_refeed, params, xs, ys)
+            j_val, ys_hat = optimise.evaluate(model, refeed, params, xs, ys)
             optimise.log_val(
+                i,
+                epochs,
+                k,
+                val_maxsteps,
+                j_val,
+                xs,
+                ys_hat,
+                ys,
+                log_frequency,
+                global_step,
+            )
+
+        #  test
+        _rng_val = rng_val
+        for j in range(val_maxsteps):
+            k = (val_maxsteps * i) + j
+            global_step += 1
+            _rng_val, _ = jax.random.split(_rng_val)
+            batch = val_set.sample(_rng_val)
+            xs, ys = optimise.preprocess(batch)
+            j_val, ys_hat = optimise.evaluate(model, test_refeed, params, xs, ys)
+            optimise.log_test(
                 i,
                 epochs,
                 k,

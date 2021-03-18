@@ -218,3 +218,4 @@ def log(
 
 log_train = partial(log, prefix="train")
 log_val = partial(log, prefix="val")
+log_test = partial(log, prefix="test")

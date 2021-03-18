@@ -37,7 +37,7 @@ class HParams(NamedTuple):
     frames_out: int
     step: int
     refeed: int
-    val_refeed: int
+    test_refeed: int
     preload: bool
 
     @staticmethod
@@ -68,7 +68,7 @@ class HParams(NamedTuple):
             frames_out=flags.frames_out,
             step=flags.step,
             refeed=flags.refeed,
-            val_refeed=flags.val_refeed,
+            test_refeed=flags.test_refeed,
             preload=flags.preload,
         )
 
