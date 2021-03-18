@@ -153,7 +153,7 @@ def main(argv):
             k = (val_maxsteps * i) + j
             global_step += 1
             _rng_val, _ = jax.random.split(_rng_val)
-            batch = test_set.sample(_rng_val)
+            batch = val_set.sample(_rng_val)
             xs, ys = optimise.preprocess(batch)
             j_val, ys_hat = optimise.evaluate(model, refeed, params, xs, ys)
             optimise.log_val(
@@ -175,7 +175,7 @@ def main(argv):
             k = (val_maxsteps * i) + j
             global_step += 1
             _rng_val, _ = jax.random.split(_rng_val)
-            batch = val_set.sample(_rng_val)
+            batch = test_set.sample(_rng_val)
             xs, ys = optimise.preprocess(batch)
             j_val, ys_hat = optimise.evaluate(model, test_refeed, params, xs, ys)
             optimise.log_test(
