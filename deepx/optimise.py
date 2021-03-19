@@ -1,4 +1,6 @@
 import logging
+import os
+import pickle
 from functools import partial
 from typing import NamedTuple, Tuple
 
@@ -178,6 +180,7 @@ def log(
     ys,
     log_frequency,
     global_step,
+    params=None,
     prefix="",
 ):
     loss = float(loss)
@@ -215,6 +218,15 @@ def log(
     log_states(ys, "truth")
     log_states(jnp.abs(ys_hat - ys), "L1")
     # log_states(compute_loss(ys_hat, ys), "Our loss")
+
+    if params is None or (step % log_frequency * 4):
+        return
+
+    params_path = os.path.join(wandb.run.dir, "params_{}.pickle".format(global_step))
+    with open(params_path, "wb") as f:
+        pickle.dump(params, f)
+        wandb.save(params_path)
+
     return
 
 

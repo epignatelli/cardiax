@@ -146,6 +146,7 @@ def main(argv):
                 ys,
                 log_frequency,
                 global_step,
+                params,
             )
 
         #  validate
