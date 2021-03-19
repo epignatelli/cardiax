@@ -225,7 +225,7 @@ def log(
     params_path = os.path.join(wandb.run.dir, "params_{}.pickle".format(global_step))
     with open(params_path, "wb") as f:
         pickle.dump(params, f)
-        wandb.save(params_path)
+        wandb.save(params_path, base_path=wandb.run.dir)
 
     return
 
