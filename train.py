@@ -171,6 +171,8 @@ def main(argv):
             )
 
             #  test
+            batch = test_set.sample(_rng_val)
+            xs, ys = optimise.preprocess(batch) if hparams.normalise else batch
             j_val, ys_hat = optimise.evaluate(model, test_refeed, params, xs, ys)
             optimise.log_test(
                 i,
