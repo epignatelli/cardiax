@@ -19,12 +19,14 @@ class HParams(NamedTuple):
     in_channels: int
     depth: int
     lr: float
+    grad_norm: float
     batch_size: int
     lamb: float
     evaluation_steps: int
     epochs: int
     train_maxsteps: int
     val_maxsteps: int
+    tbtt: bool
     increase_at: float
     teacher_forcing_prob: float
     from_checkpoint: str
@@ -35,6 +37,7 @@ class HParams(NamedTuple):
     frames_out: int
     step: int
     refeed: int
+    test_refeed: int
     preload: bool
 
     @staticmethod
@@ -47,12 +50,14 @@ class HParams(NamedTuple):
             in_channels=flags.in_channels,
             depth=flags.depth,
             lr=flags.lr,
+            grad_norm=flags.grad_norm,
             batch_size=flags.batch_size,
             lamb=flags.lamb,
             evaluation_steps=flags.evaluation_steps,
             epochs=flags.epochs,
             train_maxsteps=flags.train_maxsteps,
             val_maxsteps=flags.val_maxsteps,
+            tbtt=flags.tbtt,
             increase_at=flags.increase_at,
             teacher_forcing_prob=flags.teacher_forcing_prob,
             from_checkpoint=flags.from_checkpoint,
@@ -63,6 +68,7 @@ class HParams(NamedTuple):
             frames_out=flags.frames_out,
             step=flags.step,
             refeed=flags.refeed,
+            test_refeed=flags.test_refeed,
             preload=flags.preload,
         )
 
@@ -71,7 +77,6 @@ def ResidualBlock(out_channels, kernel_size, stride, padding, input_format):
     double_conv = stax.serial(
         stax.GeneralConv(input_format, out_channels, kernel_size, stride, padding),
         stax.Elu,
-        stax.GeneralConv(input_format, out_channels, kernel_size, stride, padding),
     )
     return Module(
         *stax.serial(
@@ -96,12 +101,12 @@ def Euler(axis=1):
 def ResNet(hidden_channels, out_channels, depth):
     residual = stax.serial(
         stax.GeneralConv(
-            ("NCDWH", "IDWHO", "NCDWH"), hidden_channels, (4, 5, 5), (1, 1, 1), "SAME"
+            ("NCDWH", "IDWHO", "NCDWH"), hidden_channels, (4, 3, 3), (1, 1, 1), "SAME"
         ),
         *[
             ResidualBlock(
                 hidden_channels,
-                (4, 5, 5),
+                (4, 3, 3),
                 (1, 1, 1),
                 "SAME",
                 ("NCDWH", "IDWHO", "NCDWH"),
@@ -109,8 +114,8 @@ def ResNet(hidden_channels, out_channels, depth):
             for _ in range(depth)
         ],
         stax.GeneralConv(
-            ("NCDWH", "IDWHO", "NCDWH"), out_channels, (4, 5, 5), (1, 1, 1), "SAME"
+            ("NCDWH", "IDWHO", "NCDWH"), out_channels, (4, 3, 3), (1, 1, 1), "SAME"
         ),
-        stax.GeneralConv(("NDCWH", "IDWHO", "NDCWH"), 3, (3, 5, 5), (1, 1, 1), "SAME")
+        stax.GeneralConv(("NDCWH", "IDWHO", "NDCWH"), 3, (3, 3, 3), (1, 1, 1), "SAME")
     )
     return stax.serial(stax.FanOut(2), stax.parallel(stax.Identity, residual), Euler())

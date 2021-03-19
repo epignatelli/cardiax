@@ -14,31 +14,35 @@ from jax.experimental import optimizers, stax
 
 def compute_loss(y_hat, y, lamb=0.05):
     # zero derivative
-    recon_loss = jnp.mean((y_hat - y) ** 2)  # mse
+    recon_loss = jnp.sqrt(jnp.mean((y_hat - y) ** 2))  # rmse
 
     # first derivative
     grad_y_hat_x = cardiax.solve.gradient(y_hat, -1)
     grad_y_hat_y = cardiax.solve.gradient(y_hat, -2)
     grad_y_x = cardiax.solve.gradient(y, -1)
     grad_y_y = cardiax.solve.gradient(y, -2)
-    grad_loss_x = jnp.mean((grad_y_hat_x - grad_y_x) ** 2)  # mse
-    grad_loss_y = jnp.mean((grad_y_hat_y - grad_y_y) ** 2)  # mse
+    grad_loss_x = jnp.sqrt(jnp.mean((grad_y_hat_x - grad_y_x) ** 2))  # rmse
+    grad_loss_y = jnp.sqrt(jnp.mean((grad_y_hat_y - grad_y_y) ** 2))  # rmse
     grad_loss = grad_loss_x + grad_loss_y
 
     # second derivative
-    del_y_hat_x = cardiax.solve.gradient(grad_y_hat_x, -1)
-    del_y_hat_y = cardiax.solve.gradient(grad_y_hat_y, -1)
-    del_y_x = cardiax.solve.gradient(grad_y_x, -1)
-    del_y_y = cardiax.solve.gradient(grad_y_y, -1)
-    del_loss_x = jnp.mean((del_y_hat_x - del_y_x) ** 2)  # mse
-    del_loss_y = jnp.mean((del_y_hat_y - del_y_y) ** 2)  # mse
-    del_loss = del_loss_x + del_loss_y
+    # del_y_hat_x = cardiax.solve.gradient(grad_y_hat_x, -1)
+    # del_y_hat_y = cardiax.solve.gradient(grad_y_hat_y, -1)
+    # del_y_x = cardiax.solve.gradient(grad_y_x, -1)
+    # del_y_y = cardiax.solve.gradient(grad_y_y, -1)
+    # del_loss_x = jnp.mean((del_y_hat_x - del_y_x) ** 2)  # mse
+    # del_loss_y = jnp.mean((del_y_hat_y - del_y_y) ** 2)  # mse
+    # del_loss = del_loss_x + del_loss_y
 
-    return (1 - lamb) * recon_loss + lamb * (grad_loss + del_loss)
+    return (1 - lamb) * recon_loss + lamb * (grad_loss)
 
 
 def preprocess(batch):
-    raise NotImplementedError
+    xs, ys = batch
+    mu, sigma = xs.mean(), xs.std()
+    normalise = lambda x: (x - mu) / sigma
+    batch = normalise(xs), normalise(ys)
+    return batch
 
 
 @partial(jax.jit, static_argnums=(0,))
@@ -48,15 +52,6 @@ def forward(
     y_hat = model.apply(params, x)
     loss = compute_loss(y_hat, y)
     return (loss, y_hat)
-
-
-@partial(jax.jit, static_argnums=(0,))
-def backward(
-    model: Module, params: Params, x: jnp.ndarray, y: jnp.ndarray
-) -> Tuple[Tuple[float, jnp.ndarray], jnp.ndarray]:
-    return jax.value_and_grad(forward, argnums=1, has_aux=True, allow_int=True)(
-        model, params, x, y
-    )
 
 
 @jax.jit
@@ -74,6 +69,7 @@ def sgd_step(
     y: jnp.ndarray,
 ) -> Tuple[float, jnp.ndarray, OptimizerState]:
     params = optimiser.params(optimiser_state)
+    backward = jax.value_and_grad(forward, argnums=1, has_aux=True, allow_int=True)
     (loss, y_hat), gradients = backward(model, params, x, y)
     gradients = postprocess_gradients(gradients)
     return loss, y_hat, optimiser.update(iteration, gradients, optimiser_state)
@@ -110,10 +106,40 @@ def tbtt_step(
         body_fun, (xs, optimiser_state), xs=jnp.arange(n_refeed)
     )
     ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
-    return (losses, ys_hat, optimiser_state)
+    return (sum(losses), ys_hat, optimiser_state)
 
 
-ptbtt_step = jax.pmap(tbtt_step, static_broadcasted_argnums=(0, 1, 2))
+@partial(jax.jit, static_argnums=(0, 1, 2))
+def btt_step(
+    model: Module,
+    optimiser: Optimiser,
+    n_refeed: int,
+    iteration: int,
+    optimiser_state: OptimizerState,
+    xs: jnp.ndarray,
+    ys: jnp.ndarray,
+) -> Tuple[float, jnp.ndarray, OptimizerState]:
+    @jax.checkpoint
+    def body_fun(inputs, i):
+        x, _params = inputs
+        y = ys[:, i][:, None, :, :, :]
+        loss, y_hat = forward(model, _params, x, y)
+        x = refeed(x, y_hat)  # roll and replace inputs with new prediction
+        return (x, _params), (loss, y_hat)
+
+    def f(xs, params):
+        _, (losses, ys_hat) = jax.lax.scan(
+            body_fun, (xs, params), xs=jnp.arange(n_refeed)
+        )
+        ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
+        return sum(losses), ys_hat
+
+    params = optimiser.params(optimiser_state)
+    btt = jax.value_and_grad(f, has_aux=True, argnums=1, allow_int=True)
+    (loss, ys_hat), grads = btt(xs, params)
+    grads = postprocess_gradients(grads)
+    optimiser_state = optimiser.update(iteration, grads, optimiser_state)
+    return (loss, ys_hat, optimiser_state)
 
 
 @partial(jax.jit, static_argnums=(0, 1))
@@ -133,7 +159,7 @@ def evaluate(
 
     _, (losses, ys_hat) = jax.lax.scan(body_fun, xs, xs=jnp.arange(n_refeed))
     ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
-    return (losses, ys_hat)
+    return (sum(losses), ys_hat)
 
 
 pevaluate = jax.pmap(evaluate, static_broadcasted_argnums=(0, 2))
@@ -192,3 +218,4 @@ def log(
 
 log_train = partial(log, prefix="train")
 log_val = partial(log, prefix="val")
+log_test = partial(log, prefix="test")

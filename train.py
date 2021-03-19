@@ -24,13 +24,15 @@ flags.DEFINE_integer("in_channels", 4, "")
 flags.DEFINE_integer("depth", 5, "")
 
 #  optimisation args
-flags.DEFINE_float("lr", 0.0001, "")
+flags.DEFINE_float("lr", 0.001, "")
+flags.DEFINE_float("grad_norm", 1.0, "")
 flags.DEFINE_integer("batch_size", 4, "")
 flags.DEFINE_float("lamb", 0.05, "")
 flags.DEFINE_integer("evaluation_steps", 20, "")
 flags.DEFINE_integer("epochs", 100, "")
 flags.DEFINE_integer("train_maxsteps", 100, "")
 flags.DEFINE_integer("val_maxsteps", 10, "")
+flags.DEFINE_bool("tbtt", False, "")
 flags.DEFINE_float("increase_at", 0.01, "")
 flags.DEFINE_float("teacher_forcing_prob", 0.0, "")
 flags.DEFINE_string("from_checkpoint", "", "")
@@ -43,6 +45,7 @@ flags.DEFINE_integer("frames_in", 2, "")
 flags.DEFINE_integer("frames_out", 1, "")
 flags.DEFINE_integer("step", 1, "")
 flags.DEFINE_integer("refeed", 5, "")
+flags.DEFINE_integer("test_refeed", 20, "")
 flags.DEFINE_boolean("preload", False, "")
 
 FLAGS = flags.FLAGS
@@ -56,12 +59,14 @@ def main(argv):
     logging.info("Parsing hyperparamers and initialising logger...")
     hparams = resnet.HParams.from_flags(FLAGS)
     refeed = hparams.refeed
+    test_refeed = hparams.test_refeed
     epochs = hparams.epochs
     train_maxsteps = hparams.train_maxsteps if not hparams.debug else 1
     val_maxsteps = hparams.val_maxsteps if not hparams.debug else 1
     log_frequency = hparams.log_frequency
     lamb = hparams.lamb
-    wandb.init(project="deepx-params5")
+    tbtt = hparams.tbtt
+    wandb.init(project="deepx")
 
     #  log
     logging.info("Logging hyperparameters...")
@@ -82,15 +87,16 @@ def main(argv):
     )
     logging.debug("Input shape is : {}".format(input_shape))
     logging.info("Creating datasets...")
-    make_dataset = lambda subdir: Dataset(
+    make_dataset = lambda subdir, n: Dataset(
         folder=os.path.join(hparams.root, subdir),
         frames_in=hparams.frames_in,
-        frames_out=n_sequence_out,
+        frames_out=n,
         step=hparams.step,
         batch_size=hparams.batch_size,
     )
-    train_set = make_dataset("train")
-    val_set = make_dataset("val")
+    train_set = make_dataset("train", n_sequence_out)
+    val_set = make_dataset("val", n_sequence_out)
+    test_set = make_dataset("val", hparams.test_refeed)
 
     #  init
     logging.info("Initialising model...")
@@ -112,6 +118,8 @@ def main(argv):
         pickle.dump(params, f)
     logging.info("Starting training...")
     global_step = 0
+
+    update = optimise.tbtt_step if hparams.tbtt else optimise.btt_step
     for i in range(epochs):
         #  train
         train_loss_epoch = 0.0
@@ -119,18 +127,18 @@ def main(argv):
             k = (train_maxsteps * i) + j
             global_step += 1
             rng, _ = jax.random.split(rng)
-            xs, ys = train_set.sample(rng)
-            train_losses_batch, ys_hat, optimiser_state = optimise.tbtt_step(
+            batch = train_set.sample(rng)
+            xs, ys = optimise.preprocess(batch)
+            j_train, ys_hat, optimiser_state = update(
                 model, optimiser, refeed, k, optimiser_state, xs, ys
             )
-            train_losses_batch = sum(train_losses_batch)
-            train_loss_epoch += train_losses_batch
+            train_loss_epoch += j_train
             optimise.log_train(
                 i,
                 epochs,
                 k,
                 train_maxsteps,
-                train_losses_batch,
+                j_train,
                 xs,
                 ys_hat,
                 ys,
@@ -145,15 +153,37 @@ def main(argv):
             k = (val_maxsteps * i) + j
             global_step += 1
             _rng_val, _ = jax.random.split(_rng_val)
-            xs, ys = val_set.sample(_rng_val)
-            val_losses_batch, ys_hat = optimise.evaluate(model, refeed, params, xs, ys)
-            val_losses_batch = sum(val_losses_batch)
+            batch = val_set.sample(_rng_val)
+            xs, ys = optimise.preprocess(batch)
+            j_val, ys_hat = optimise.evaluate(model, refeed, params, xs, ys)
             optimise.log_val(
                 i,
                 epochs,
                 k,
                 val_maxsteps,
-                val_losses_batch,
+                j_val,
+                xs,
+                ys_hat,
+                ys,
+                log_frequency,
+                global_step,
+            )
+
+        #  test
+        _rng_val = rng_val
+        for j in range(val_maxsteps):
+            k = (val_maxsteps * i) + j
+            global_step += 1
+            _rng_val, _ = jax.random.split(_rng_val)
+            batch = test_set.sample(_rng_val)
+            xs, ys = optimise.preprocess(batch)
+            j_val, ys_hat = optimise.evaluate(model, test_refeed, params, xs, ys)
+            optimise.log_test(
+                i,
+                epochs,
+                k,
+                val_maxsteps,
+                j_val,
                 xs,
                 ys_hat,
                 ys,
