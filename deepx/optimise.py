@@ -73,7 +73,7 @@ def refeed(x0, x1):
     jax.pmap,
     in_axes=(None, None, None, None, None, 0, 0),
     static_broadcasted_argnums=(0, 1, 2),
-    axis_name="device"
+    axis_name="device",
 )
 def tbtt_step(
     model: Module,
@@ -105,7 +105,7 @@ def tbtt_step(
     jax.pmap,
     in_axes=(None, None, None, None, 0, 0, 0),
     static_broadcasted_argnums=(0, 1, 2),
-    axis_name="device"
+    axis_name="device",
 )
 def btt_step(
     model: Module,
@@ -145,7 +145,7 @@ def btt_step(
     jax.pmap,
     in_axes=(None, None, 0, 0, 0),
     static_broadcasted_argnums=(0, 1),
-    axis_name="device"
+    axis_name="device",
 )
 def evaluate(
     model: Module,
@@ -196,11 +196,11 @@ def log(
         {"{}/loss".format(prefix): loss, "epoch": current_epoch, "batch": step},
         step=global_step,
     )
-    diffusivity = xs[:, :, -1:].squeeze()[0, -1]
+    diffusivity = xs[:, :, :, -1:].squeeze()[0, 0, -1]
 
     def log_states(array, name, **kw):
         # take only first element in batch and last frame
-        a = array[0, 0, -1]  # (device, batch, t, c, w, h)
+        a = array[0, 0, -1]  #  (device, batch, t, c, w, h)
         state = cardiax.solve.State(a[0], a[1], a[2])
         fig, _ = cardiax.plot.plot_state(state, diffusivity=diffusivity, **kw)
         wandb.log(
@@ -210,7 +210,7 @@ def log(
         plt.close(fig)
 
     # log input states
-    log_states(xs[:, :, :3], "inputs")
+    log_states(xs[:, :, :, :3], "inputs")
     log_states(ys_hat, "predictions")
     log_states(ys, "truth")
     log_states(jnp.abs(ys_hat - ys), "L1")
