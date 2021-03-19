@@ -3,10 +3,12 @@
 
 module load anaconda3/personal
 module load cuda/10.2
+module load cudnn/7.0
 source activate cardiax
 
-#python  --batch_size 32 /rds/general/user/sg6513/home/repos/cardiax/train.py --root '/rds/general/user/sg6513/ephemeral/data/' --log_dir /rds/general/user/sg6513/ephemeral/data/logs
-python  --batch_size 32 $HOME/repos/cardiax/train.py --root '$EPHEMERAL/data/' --log_dir '$EPHEMERAL/data/logs'
+python /rds/general/user/sg6513/home/repos/cardiax/train.py --batch_size 32 --root '/rds/general/user/sg6513/ephemeral/data/' 
 
-mkdir $WORK/$PBS_JOBID
-cp * $WORK/$PBS_JOBID
+#move logs to dedicated folder
+PBS_JOBID_NB=${PBS_JOBID//[!0-9]}
+mv resnet.pbs.e${PBS_JOBID_NB} pbslogs/resnet.pbs.e${PBS_JOBID_NB}
+mv resnet.pbs.o${PBS_JOBID_NB} pbslogs/resnet.pbs.o${PBS_JOBID_NB}
