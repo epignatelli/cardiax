@@ -13,4 +13,5 @@ shortuuid
 uuid
 tqdm
 wandb
+termcolor
 git+https://github.com/epignatelli/helx
