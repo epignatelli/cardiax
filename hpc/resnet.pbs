@@ -1,0 +1,14 @@
+#PBS -lwalltime=22:00:00
+#PBS -lselect=1:ncpus=4:mem=24gb:ngpus=1:gpu_type=RTX6000
+
+module load anaconda3/personal
+module load cuda/10.2
+module load cudnn/7.0
+source activate cardiax
+
+python /rds/general/user/sg6513/home/repos/cardiax/train.py --batch_size 32 --root '/rds/general/user/sg6513/ephemeral/data/' 
+
+#move logs to dedicated folder
+PBS_JOBID_NB=${PBS_JOBID//[!0-9]}
+mv resnet.pbs.e${PBS_JOBID_NB} pbslogs/resnet.pbs.e${PBS_JOBID_NB}
+mv resnet.pbs.o${PBS_JOBID_NB} pbslogs/resnet.pbs.o${PBS_JOBID_NB}

@@ -13,7 +13,7 @@ import deepx
 
 flags.DEFINE_string(
     "params",
-    "3",
+    "5",
     "Paramset from the Fenton-Cherry 2002 paper. You can choose between [1A, 1B, 1C, 1D, 1E, 2, 3, 4A, 4B, 4C, , 5, 6, 7, 8, 9, 10]",
 )
 flags.DEFINE_list(
@@ -21,6 +21,13 @@ flags.DEFINE_list(
     [1200, 1200],
     "Shape of the field to simulate into. Sizes are in computational units. A computational unit is 1/100 of a cm",
 )
+
+flags.DEFINE_string(
+"cuda_visible_devices",
+"1",
+"ID of cuda devices",
+)
+
 flags.DEFINE_integer(
     "length",
     1000,
@@ -38,7 +45,7 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_string(
     "filepath",
-    "data/verify_{}.hdf5",
+    "/rds/general/user/sg6513/ephemeral/data/verify_{}.hdf5",
     "Python forbattable string as filepath to save the simulation to. The simulation is saved in hdf5 format.",
 )
 flags.DEFINE_list(
@@ -53,7 +60,7 @@ flags.DEFINE_bool(
 )
 flags.DEFINE_integer(
     "n_sequences",
-    10,
+    100,
     "Number of random sequences to generate",
 )
 flags.DEFINE_integer(
@@ -77,6 +84,7 @@ FLAGS = flags.FLAGS
 
 
 def main(argv):
+    os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.cuda_visible_devices
     paramset = getattr(cardiax.params, "PARAMSET_{}".format(FLAGS.params))
     step = FLAGS.step
     stop = FLAGS.length
