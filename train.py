@@ -133,6 +133,7 @@ def main(argv):
             j_train, ys_hat, optimiser_state = update(
                 model, optimiser, refeed, k, optimiser_state, xs, ys
             )
+            j_train = j_train[0]  #  remove device axis - loss is returned synchronised
             train_loss_epoch += j_train
             optimise.log_train(
                 i,
@@ -157,6 +158,7 @@ def main(argv):
             batch = val_set.sample(_rng_val)
             xs, ys = optimise.preprocess(batch) if hparams.normalise else batch
             j_val, ys_hat = optimise.evaluate(model, refeed, params, xs, ys)
+            j_val = j_val[0]  #  remove device axis - loss is returned synchronised
             optimise.log_val(
                 i,
                 epochs,
@@ -173,13 +175,14 @@ def main(argv):
             #  test
             batch = test_set.sample(_rng_val)
             xs, ys = optimise.preprocess(batch) if hparams.normalise else batch
-            j_val, ys_hat = optimise.evaluate(model, test_refeed, params, xs, ys)
+            j_test, ys_hat = optimise.evaluate(model, test_refeed, params, xs, ys)
+            j_test = j_test[0]  #  remove device axis - loss is returned synchronised
             optimise.log_test(
                 i,
                 epochs,
                 k,
                 val_maxsteps,
-                j_val,
+                j_test,
                 xs,
                 ys_hat,
                 ys,
