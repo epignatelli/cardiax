@@ -272,4 +272,6 @@ class TrainState(NamedTuple):
     @staticmethod
     def load(filepath):
         with open(filepath, "rb") as f:
-            return pickle.load(f)
+            state = pickle.load(f)
+            state = state._replace(params=redistribute_tree(state.params))
+            return state

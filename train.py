@@ -111,13 +111,16 @@ def main(argv):
     if hparams.from_checkpoint not in ("", None):
         logging.info("Loading pretrained state from {}".format(hparams.from_checkpoint))
         train_state = optimise.TrainState.load(hparams.from_checkpoint)
+        rng = train_state.rng
+        params = train_state.params
+        global_step = train_state.global_step
     else:
+        global_step = 0
         train_state = optimise.TrainState(rng, 0, params, hparams)
     opt_state = optimiser.init(params)
 
     #  training
     logging.info("Starting training...")
-    global_step = 0
     update = optimise.tbtt_step if hparams.tbtt else optimise.btt_step
     for i in range(hparams.epochs):
         #  train
