@@ -109,6 +109,7 @@ def main(argv):
     _, params = model.init(rng, input_shape)
     optimiser = Optimiser(*optimizers.adam(hparams.lr))
     if hparams.from_checkpoint not in ("", None):
+        logging.info("Loading pretrained state from {}".format(hparams.from_checkpoint))
         train_state = optimise.TrainState.load(hparams.from_checkpoint)
     else:
         train_state = optimise.TrainState(rng, 0, params, hparams)
