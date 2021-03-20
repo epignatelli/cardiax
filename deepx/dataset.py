@@ -87,8 +87,8 @@ class Dataset:
         xs, ys = collate(onp.stack(batch), onp.stack(diffusivities))
         return xs, ys
 
-    def increase_frames(self):
-        self.frames_out += 1
+    def increase_frames(self, n=1):
+        self.frames_out += n
         logging.info(
             "Increasing the amount of output frames to {} \t\t\t".format(
                 self.frames_out
