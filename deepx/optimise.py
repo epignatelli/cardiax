@@ -199,7 +199,7 @@ def log(
         {"{}/loss".format(prefix): loss, "epoch": current_epoch, "batch": step},
         step=global_step,
     )
-    diffusivity = xs[:, :, -1, -1:]  #  (device, batch, t, c, w, h)
+    diffusivity = xs[0, 0, -1, -1:]  #  (device, batch, t, c, w, h)
 
     def log_states(array, name, **kw):
         # take only first element in batch and last frame
