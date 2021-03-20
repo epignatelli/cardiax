@@ -20,6 +20,7 @@ class HParams(NamedTuple):
     depth: int
     lr: float
     grad_norm: float
+    normalise: bool
     batch_size: int
     lamb: float
     evaluation_steps: int
@@ -51,6 +52,7 @@ class HParams(NamedTuple):
             depth=flags.depth,
             lr=flags.lr,
             grad_norm=flags.grad_norm,
+            normalise=flags.normalise,
             batch_size=flags.batch_size,
             lamb=flags.lamb,
             evaluation_steps=flags.evaluation_steps,
@@ -116,6 +118,18 @@ def ResNet(hidden_channels, out_channels, depth):
         stax.GeneralConv(
             ("NCDWH", "IDWHO", "NCDWH"), out_channels, (4, 3, 3), (1, 1, 1), "SAME"
         ),
-        stax.GeneralConv(("NDCWH", "IDWHO", "NDCWH"), 3, (3, 3, 3), (1, 1, 1), "SAME")
+        stax.GeneralConv(("NDCWH", "IDWHO", "NDCWH"), 3, (3, 3, 3), (1, 1, 1), "SAME"),
     )
-    return stax.serial(stax.FanOut(2), stax.parallel(stax.Identity, residual), Euler())
+
+    model = Module(
+        *stax.serial(stax.FanOut(2), stax.parallel(stax.Identity, residual), Euler())
+    )
+
+    def init(input_shape, rng):
+        output_shape, params = model.init(input_shape, rng)
+        params = jax.tree_map(
+            lambda x: jnp.array([x] * jax.local_device_count()), params
+        )
+        return output_shape, params
+
+    return (init, model.apply)

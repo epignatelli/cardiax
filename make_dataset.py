@@ -128,13 +128,21 @@ def main(argv):
         )
         start = time.time()
         make_hdf5(seed)
-        logging.info("Simulation completed in {}s".format((time.time() - start)))
+        logging.info(
+            "Simulation {}/{} completed in {}s".format(
+                seed, start_seed + n_sequences, time.time() - start
+            )
+        )
 
         if FLAGS.export_videos:
             start = time.time()
             filepath = FLAGS.filepath
             hdf5_to_mp4(filepath.format(seed), fps=60 / step)
-            logging.info("Conversion completed in {}".format((time.time() - start)))
+            logging.info(
+                "Conversion {}/{} completed in {}".format(
+                    seed, start_seed + n_sequences, time.time() - start
+                )
+            )
 
 
 if __name__ == "__main__":

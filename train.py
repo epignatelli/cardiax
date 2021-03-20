@@ -26,6 +26,7 @@ flags.DEFINE_integer("depth", 5, "")
 #  optimisation args
 flags.DEFINE_float("lr", 0.001, "")
 flags.DEFINE_float("grad_norm", 1.0, "")
+flags.DEFINE_bool("normalise", False, "")
 flags.DEFINE_integer("batch_size", 4, "")
 flags.DEFINE_float("lamb", 0.05, "")
 flags.DEFINE_integer("evaluation_steps", 20, "")
@@ -128,10 +129,11 @@ def main(argv):
             global_step += 1
             rng, _ = jax.random.split(rng)
             batch = train_set.sample(rng)
-            xs, ys = optimise.preprocess(batch)
+            xs, ys = optimise.preprocess(batch) if hparams.normalise else batch
             j_train, ys_hat, optimiser_state = update(
                 model, optimiser, refeed, k, optimiser_state, xs, ys
             )
+            j_train = j_train[0]  #  remove device axis - loss is returned synchronised
             train_loss_epoch += j_train
             optimise.log_train(
                 i,
@@ -144,6 +146,7 @@ def main(argv):
                 ys,
                 log_frequency,
                 global_step,
+                params,
             )
 
         #  validate
@@ -154,8 +157,9 @@ def main(argv):
             global_step += 1
             _rng_val, _ = jax.random.split(_rng_val)
             batch = val_set.sample(_rng_val)
-            xs, ys = optimise.preprocess(batch)
+            xs, ys = optimise.preprocess(batch) if hparams.normalise else batch
             j_val, ys_hat = optimise.evaluate(model, refeed, params, xs, ys)
+            j_val = j_val[0]  #  remove device axis - loss is returned synchronised
             optimise.log_val(
                 i,
                 epochs,
@@ -169,21 +173,17 @@ def main(argv):
                 global_step,
             )
 
-        #  test
-        _rng_val = rng_val
-        for j in range(val_maxsteps):
-            k = (val_maxsteps * i) + j
-            global_step += 1
-            _rng_val, _ = jax.random.split(_rng_val)
+            #  test
             batch = test_set.sample(_rng_val)
-            xs, ys = optimise.preprocess(batch)
-            j_val, ys_hat = optimise.evaluate(model, test_refeed, params, xs, ys)
+            xs, ys = optimise.preprocess(batch) if hparams.normalise else batch
+            j_test, ys_hat = optimise.evaluate(model, test_refeed, params, xs, ys)
+            j_test = j_test[0]  #  remove device axis - loss is returned synchronised
             optimise.log_test(
                 i,
                 epochs,
                 k,
                 val_maxsteps,
-                j_val,
+                j_test,
                 xs,
                 ys_hat,
                 ys,
