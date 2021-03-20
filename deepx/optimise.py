@@ -19,7 +19,7 @@ from helx.types import (
     Scheduler,
     SchedulerState,
 )
-from helx.distributed import reistributed_tree
+from helx.distributed import redistribute_tree
 from jax.experimental import optimizers
 
 from deepx.resnet import HParams
@@ -244,10 +244,6 @@ def log(
 log_train = partial(log, prefix="train")
 log_val = partial(log, prefix="val")
 log_test = partial(log, prefix="test")
-
-
-def redistribute_tree(tree):
-    return jax.tree_map(lambda x: jnp.array([x[0]] * jax.local_device_count()), tree)
 
 
 class TrainState(NamedTuple):
