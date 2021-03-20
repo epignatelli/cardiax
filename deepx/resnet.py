@@ -99,6 +99,14 @@ def Euler(axis=1):
     return init_fun, apply_fun
 
 
+def distribute_params(tree):
+    return jax.tree_map(lambda x: jnp.array([x] * jax.local_device_count()), tree)
+
+
+def broadcast_params(tree):
+    return jax.tree_map(lambda x: jnp.array([x[0]] * jax.local_device_count()), tree)
+
+
 @module
 def ResNet(hidden_channels, out_channels, depth):
     residual = stax.serial(

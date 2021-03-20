@@ -180,7 +180,7 @@ def log(
     ys,
     log_frequency,
     global_step,
-    params=None,
+    train_state=None,
     prefix="",
 ):
     loss = float(loss)
@@ -219,17 +219,43 @@ def log(
     log_states(jnp.abs(ys_hat - ys), "L1")
     # log_states(compute_loss(ys_hat, ys), "Our loss")
 
-    if params is None or (step % log_frequency * 4):
+    if train_state is None or (step % log_frequency * 4):
         return
 
-    params_path = os.path.join(wandb.run.dir, "params_{}.pickle".format(global_step))
-    with open(params_path, "wb") as f:
-        pickle.dump(params, f)
-        wandb.save(params_path, base_path=wandb.run.dir)
-
+    params_path = os.path.join(
+        wandb.run.dir, "train_state_{}.pickle".format(global_step)
+    )
+    train_state.serialise(params_path)
     return
 
 
 log_train = partial(log, prefix="train")
 log_val = partial(log, prefix="val")
 log_test = partial(log, prefix="test")
+
+
+class TrainState(NamedTuple):
+    rng: RNGKey
+    global_step: int
+    optimiser_state: OptimizerState
+    hparams: HParams
+
+    def serialise(self, filepath):
+        unpacked_state = optimizers.unpack_optimizer_state(self.optimiser_state)
+        with open(filepath, "wb") as f:
+            obj = (
+                self.rng,
+                self.global_step,
+                unpacked_state,
+                self.hparams,
+            )
+            pickle.dump(obj, f)
+            wandb.save(filepath, base_path=os.path.dirname(filepath))
+
+    @staticmethod
+    def deserialise(filepath):
+        with open(filepath, "rb") as f:
+            state = pickle.load(f)
+            rng, global_step, unpacked_state, hparams = state
+            opt_state = optimizers.pack_optimizer_state(unpacked_state)
+            return TrainState(rng, global_step, opt_state, hparams)
