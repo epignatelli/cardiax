@@ -267,7 +267,7 @@ class TrainState(NamedTuple):
 
     def save(self, filepath):
         with open(filepath, "wb") as f:
-            pickle.dump(self, filepath)
+            pickle.dump(self, f)
 
     @staticmethod
     def load(filepath):
