@@ -108,11 +108,11 @@ def main(argv):
     logging.info("Initialising optimisers...")
     _, params = model.init(rng, input_shape)
     optimiser = Optimiser(*optimizers.adam(hparams.lr))
-    opt_state = optimiser.init(params)
     if hparams.from_checkpoint not in ("", None):
-        train_state = optimise.TrainState.deserialise(hparams.from_checpoint)
+        train_state = optimise.TrainState.load(hparams.from_checkpoint)
     else:
-        train_state = optimise.TrainState(rng, 0, opt_state, hparams)
+        train_state = optimise.TrainState(rng, 0, params, hparams)
+    opt_state = optimiser.init(params)
 
     #  training
     logging.info("Starting training...")

@@ -1,6 +1,7 @@
 import logging
 import os
 import pickle
+from collections import deque
 from functools import partial
 from typing import NamedTuple, Tuple
 
@@ -9,9 +10,20 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import wandb
-from helx.methods import batch, module
-from helx.types import Module, Optimiser, OptimizerState, Params, Shape
-from jax.experimental import optimizers, stax
+from helx.methods import scheduler
+from helx.types import (
+    Module,
+    Optimiser,
+    OptimizerState,
+    Params,
+    RNGKey,
+    Scheduler,
+    SchedulerState,
+)
+from helx.distributed import reistributed_tree
+from jax.experimental import optimizers
+
+from deepx.resnet import HParams
 
 
 def compute_loss(y_hat, y, lamb=0.05):
@@ -225,7 +237,8 @@ def log(
     params_path = os.path.join(
         wandb.run.dir, "train_state_{}.pickle".format(global_step)
     )
-    train_state.serialise(params_path)
+    train_state.save(params_path)
+    wandb.save(params_path, base_path=wandb.run.dir)
     return
 
 
@@ -234,28 +247,30 @@ log_val = partial(log, prefix="val")
 log_test = partial(log, prefix="test")
 
 
+def redistribute_tree(tree):
+    return jax.tree_map(lambda x: jnp.array([x[0]] * jax.local_device_count()), tree)
+
+
 class TrainState(NamedTuple):
     rng: RNGKey
     global_step: int
-    optimiser_state: OptimizerState
+    params: Params
     hparams: HParams
 
-    def serialise(self, filepath):
-        unpacked_state = optimizers.unpack_optimizer_state(self.optimiser_state)
-        with open(filepath, "wb") as f:
-            obj = (
-                self.rng,
-                self.global_step,
-                unpacked_state,
-                self.hparams,
-            )
-            pickle.dump(obj, f)
-            wandb.save(filepath, base_path=os.path.dirname(filepath))
+    def serialise(self):
+        return pickle.dumps(self)
 
     @staticmethod
-    def deserialise(filepath):
+    def deserialise(obj):
+        state = pickle.loads(obj)
+        state = state._replace(params=redistribute_tree(state.params))
+        return state
+
+    def save(self, filepath):
+        with open(filepath, "wb") as f:
+            pickle.dump(self, filepath)
+
+    @staticmethod
+    def load(filepath):
         with open(filepath, "rb") as f:
-            state = pickle.load(f)
-            rng, global_step, unpacked_state, hparams = state
-            opt_state = optimizers.pack_optimizer_state(unpacked_state)
-            return TrainState(rng, global_step, opt_state, hparams)
+            return pickle.load(f)
