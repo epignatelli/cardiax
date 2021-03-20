@@ -1,13 +1,9 @@
-import logging
-from functools import partial
-from typing import NamedTuple, Tuple
+from typing import NamedTuple
 
-import cardiax
 import jax
 import jax.numpy as jnp
-import wandb
-from helx.methods import module, batch
-from helx.types import Module, Optimiser, OptimizerState, Params, Shape
+from helx.methods import pmodule
+from helx.types import Module
 from jax.experimental import stax
 
 
@@ -99,17 +95,13 @@ def Euler(axis=1):
     return init_fun, apply_fun
 
 
-def distribute_params(tree):
+def distribute_tree(tree):
     return jax.tree_map(lambda x: jnp.array([x] * jax.local_device_count()), tree)
 
 
-def broadcast_params(tree):
-    return jax.tree_map(lambda x: jnp.array([x[0]] * jax.local_device_count()), tree)
-
-
-@module
+@pmodule
 def ResNet(hidden_channels, out_channels, depth):
-    residual = stax.serial(
+    return stax.serial(
         stax.GeneralConv(
             ("NCDWH", "IDWHO", "NCDWH"), hidden_channels, (4, 3, 3), (1, 1, 1), "SAME"
         ),
@@ -128,16 +120,3 @@ def ResNet(hidden_channels, out_channels, depth):
         ),
         stax.GeneralConv(("NDCWH", "IDWHO", "NDCWH"), 3, (3, 3, 3), (1, 1, 1), "SAME"),
     )
-
-    model = Module(
-        *stax.serial(stax.FanOut(2), stax.parallel(stax.Identity, residual), Euler())
-    )
-
-    def init(input_shape, rng):
-        output_shape, params = model.init(input_shape, rng)
-        params = jax.tree_map(
-            lambda x: jnp.array([x] * jax.local_device_count()), params
-        )
-        return output_shape, params
-
-    return (init, model.apply)
