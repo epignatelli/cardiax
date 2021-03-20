@@ -16,7 +16,6 @@ from helx.types import (
     Optimiser,
     OptimizerState,
     Params,
-    RNGKey,
     Scheduler,
     SchedulerState,
 )
@@ -252,7 +251,7 @@ def redistribute_tree(tree):
 
 
 class TrainState(NamedTuple):
-    rng: RNGKey
+    rng: jnp.ndarray
     global_step: int
     params: Params
     hparams: HParams
