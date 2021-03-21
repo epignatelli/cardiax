@@ -99,14 +99,16 @@ def ResMHDPABlock(hidden_channels):
 
 
 @pmodule
-def SelfAttentionResNet(hidden_channels, depth):
+def SelfAttentionResNet(hidden_channels, out_channels, depth):
     # time integration module
     backbone = stax.serial(
         stax.GeneralConv(
             ("NCDWH", "IDWHO", "NCDWH"), hidden_channels, (4, 3, 3), (1, 1, 1), "SAME"
         ),
         *[ResMHDPABlock(hidden_channels) for _ in range(depth)],
-        stax.GeneralConv(("NCDWH", "IDWHO", "NCDWH"), 1, (4, 3, 3), (1, 1, 1), "SAME"),
+        stax.GeneralConv(
+            ("NCDWH", "IDWHO", "NCDWH"), out_channels, (4, 3, 3), (1, 1, 1), "SAME"
+        ),
         stax.GeneralConv(("NDCWH", "IDWHO", "NDCWH"), 3, (3, 3, 3), (1, 1, 1), "SAME"),
     )
 
