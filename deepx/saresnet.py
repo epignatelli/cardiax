@@ -6,7 +6,7 @@ import cardiax
 import jax
 import jax.numpy as jnp
 import wandb
-from helx.methods import module, batch
+from helx.methods import module, batch, pmodule
 from helx.types import Module, Optimiser, OptimizerState, Params, Shape
 from jax.experimental import stax
 
@@ -38,9 +38,9 @@ class HParams(NamedTuple):
     preload: bool
 
 
-def SelfAttentionBlock(n_heads, input_format):
+def SelfAttentionBlock(n_heads):
     conv_init, conv_apply = stax.GeneralConv(
-        input_format, n_heads, (4, 1, 1), (1, 1, 1), "SAME"
+        ("NCDWH", "IDWHO", "NCDWH"), n_heads, (4, 1, 1), (1, 1, 1), "SAME"
     )
 
     def init(rng, input_shape):
@@ -68,56 +68,49 @@ def SelfAttentionBlock(n_heads, input_format):
     return (init, apply)
 
 
-def ConvBlock(out_channels, input_format):
+def ConvBlock(out_channels):
     return stax.serial(
-        stax.FanOut(3),
-        stax.parallel(
-            stax.GeneralConv(input_format, out_channels, (4, 3, 3), (1, 1, 1), "SAME"),
-            stax.GeneralConv(input_format, out_channels, (4, 5, 5), (1, 1, 1), "SAME"),
-            stax.GeneralConv(input_format, out_channels, (4, 7, 7), (1, 1, 1), "SAME"),
+        stax.GeneralConv(
+            ("NCDWH", "IDWHO", "NCDWH"), out_channels, (4, 3, 3), (1, 1, 1), "SAME"
         ),
-        stax.FanInConcat(axis=-3),
+        stax.Elu,
     )
 
 
-def ResBlock(out_channels, n_heads, input_format):
+def ResBlock(out_channels, n_heads):
     return stax.serial(
         stax.FanOut(2),
+        stax.parallel(stax.Identity, ConvBlock(out_channels)),
         stax.parallel(
             stax.Identity,
-            ConvBlock(out_channels, input_format),
-        ),
-        stax.parallel(
-            stax.Identity,
-            SelfAttentionBlock(n_heads, input_format),
+            SelfAttentionBlock(n_heads),
         ),
         stax.FanInSum,
     )
 
 
-@module
-def SelfAttentionResNet(hidden_channels, out_channels, n_heads, depth, input_format):
+def ResMHDPABlock(hidden_channels):
+    block = stax.serial(ConvBlock(hidden_channels), SelfAttentionBlock(4))
     return stax.serial(
         stax.FanOut(2),
-        stax.parallel(
-            stax.Identity,
-            stax.GeneralConv(
-                input_format, hidden_channels, (1, 1, 1), (1, 1, 1), "SAME"
-            ),
-        ),
-        stax.parallel(
-            stax.Identity,
-            stax.serial(
-                ResBlock(hidden_channels, n_heads, input_format),
-                ResBlock(hidden_channels, n_heads, input_format),
-                ResBlock(hidden_channels, n_heads, input_format),
-                ResBlock(hidden_channels, n_heads, input_format),
-                ResBlock(hidden_channels, n_heads, input_format),
-            ),
-        ),
-        stax.parallel(
-            stax.Identity,
-            stax.GeneralConv(input_format, out_channels, (1, 1, 1), (1, 1, 1), "SAME"),
-        ),
+        stax.parallel(block, stax.Identity),
         stax.FanInSum,
+    )
+
+
+@pmodule
+def SelfAttentionResNet(hidden_channels, depth):
+    # time integration module
+    backbone = stax.serial(
+        stax.GeneralConv(
+            ("NCDWH", "IDWHO", "NCDWH"), hidden_channels, (4, 3, 3), (1, 1, 1), "SAME"
+        ),
+        *[ResMHDPABlock(hidden_channels) for _ in range(depth)],
+        stax.GeneralConv(("NCDWH", "IDWHO", "NCDWH"), 1, (4, 3, 3), (1, 1, 1), "SAME"),
+        stax.GeneralConv(("NDCWH", "IDWHO", "NDCWH"), 3, (3, 3, 3), (1, 1, 1), "SAME"),
+    )
+
+    #  euler scheme
+    return stax.serial(
+        stax.FanOut(2), stax.parallel(stax.Identity, backbone), stax.FanInSum
     )
