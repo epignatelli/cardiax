@@ -83,25 +83,23 @@ def ResidualBlock(out_channels, kernel_size, stride, padding, input_format):
     )
 
 
-def Euler(axis=1):
-    def init_fun(rng, input_shape):
-        s0, _ = input_shape
-        return (s0[:3] + (s0[3] - 1,) + s0[4:], ())  # remove 1 channel (diffusivity)
+def Euler():
+    def init(rng, input_shape):
+        # (b, t, c, w, h)
+        input_shape, _ = input_shape
+        return (input_shape[0], 1) + input_shape[3:], ()
 
-    def apply_fun(params, inputs, **kwargs):
+    def apply(params, inputs, **kwargs):
         x0, x1 = inputs
-        return x0[:, -1:, :-1] + x1
+        return jnp.add(x0[:, -2:-1, :3], x1)
 
-    return init_fun, apply_fun
-
-
-def distribute_tree(tree):
-    return jax.tree_map(lambda x: jnp.array([x] * jax.local_device_count()), tree)
+    return init, apply
 
 
 @pmodule
 def ResNet(hidden_channels, out_channels, depth):
-    return stax.serial(
+    # time integration module
+    backbone = stax.serial(
         stax.GeneralConv(
             ("NCDWH", "IDWHO", "NCDWH"), hidden_channels, (4, 3, 3), (1, 1, 1), "SAME"
         ),
@@ -120,3 +118,6 @@ def ResNet(hidden_channels, out_channels, depth):
         ),
         stax.GeneralConv(("NDCWH", "IDWHO", "NDCWH"), 3, (3, 3, 3), (1, 1, 1), "SAME"),
     )
+
+    #  euler scheme
+    return stax.serial(stax.FanOut(2), stax.parallel(stax.Identity, backbone), Euler())
