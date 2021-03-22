@@ -14,6 +14,7 @@ class HParams(NamedTuple):
     hidden_channels: int
     in_channels: int
     depth: int
+    denseconv_step: int
     lr: float
     grad_norm: float
     normalise: bool
@@ -46,6 +47,7 @@ class HParams(NamedTuple):
             hidden_channels=flags.hidden_channels,
             in_channels=flags.in_channels,
             depth=flags.depth,
+            denseconv_step=flags.denseconv_step,
             lr=flags.lr,
             grad_norm=flags.grad_norm,
             normalise=flags.normalise,
@@ -114,7 +116,7 @@ def Euler():
         x0, x1 = inputs
         #  x0 is the input, so (b, 2, 4, w, h)
         #  x1 is the output, so (b, 1, 4, w, h)
-        # we discard the channel deriving from the diff map
+        #  we discard the channel deriving from the diff map
         return jnp.add(x0[:, -2:-1, :3], x1[:, :, :3])
 
     return init, apply

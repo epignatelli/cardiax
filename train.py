@@ -19,9 +19,10 @@ flags.DEFINE_integer("log_frequency", 5, "")
 flags.DEFINE_boolean("debug", False, "")
 
 #  model args
-flags.DEFINE_integer("hidden_channels", 8, "")
+flags.DEFINE_integer("hidden_channels", 16, "")
 flags.DEFINE_integer("in_channels", 4, "")
-flags.DEFINE_integer("depth", 5, "")
+flags.DEFINE_integer("depth", 20, "")
+flags.DEFINE_integer("denseconv_step", 5, "")
 
 #  optimisation args
 flags.DEFINE_float("lr", 0.001, "")
@@ -102,6 +103,7 @@ def main(argv):
         hidden_channels=hparams.hidden_channels,
         out_channels=hparams.frames_out,
         depth=hparams.depth,
+        denseconv_step=hparams.denseconv_step,
     )
 
     #  init optimiser
