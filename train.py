@@ -58,7 +58,7 @@ def main(argv):
     )
     #  hparms
     logging.info("Initialising hyperparamers...")
-    if url := FLAGS.from_checkpoint not in ("", None):
+    if (url := FLAGS.from_checkpoint) not in ("", None):
         logging.info("Loading pretrained state from {}".format(url))
         train_state = optimise.TrainState.restore(url)
         hparams = train_state.hparams
