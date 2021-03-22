@@ -112,7 +112,10 @@ def Euler():
 
     def apply(params, inputs, **kwargs):
         x0, x1 = inputs
-        return jnp.add(x0[:, -2:-1, :3], x1)
+        #  x0 is the input, so (b, 2, 4, w, h)
+        #  x1 is the output, so (b, 1, 4, w, h)
+        # we discard the channel deriving from the diff map
+        return jnp.add(x0[:, -2:-1, :3], x1[:, :, :3])
 
     return init, apply
 
@@ -129,7 +132,6 @@ def ResNet(hidden_channels, out_channels, depth, denseconv_step):
         stax.GeneralConv(
             ("NCDWH", "IDWHO", "NCDWH"), out_channels, (4, 3, 3), (1, 1, 1), "SAME"
         ),
-        stax.GeneralConv(("NDCWH", "IDWHO", "NDCWH"), 3, (3, 3, 3), (1, 1, 1), "SAME"),
     )
 
     #  euler scheme
