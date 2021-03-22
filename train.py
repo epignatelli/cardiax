@@ -39,7 +39,7 @@ flags.DEFINE_float("teacher_forcing_prob", 0.0, "")
 flags.DEFINE_string("from_checkpoint", "", "")
 
 #  input data arguments
-flags.DEFINE_string("root", "/rds/general/user/sg6513/ephemeral/data/", "")
+flags.DEFINE_string("root", "$EPHEMERAL/data/", "")
 flags.DEFINE_string("paramset", "paramset5", "")
 flags.DEFINE_list("size", [256, 256], "")
 flags.DEFINE_integer("frames_in", 2, "")
