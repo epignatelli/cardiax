@@ -79,7 +79,7 @@ def main(argv):
     #  log
     logging.info("Initialising logger...")
     wandb.init(project="deepx")
-    wandb.config.update(dict(hparams))
+    wandb.config.update(hparams._asdict())
 
     #  datasets
     logging.info("Creating datasets...")
