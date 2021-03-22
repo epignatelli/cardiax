@@ -271,3 +271,14 @@ class TrainState(NamedTuple):
             state = pickle.load(f)
             state = state._replace(params=redistribute_tree(state.params))
             return state
+
+    @staticmethod
+    def restore(wandb_address):
+        if os.path.exists(wandb_address):
+            return TrainState.load(wandb_address)
+        run_id, step = wandb_address.strip().split("/")
+        api = wandb.Api()
+        run = api.run("epignatelli/deepx/{}".format(run_id))
+        filename = "train_state_{}.pickle".format(step)
+        run.file(filename).download(replace=True)
+        return TrainState.load(filename)
