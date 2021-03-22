@@ -71,10 +71,10 @@ def main(argv):
         global_step = 0
         params = None
 
+    logging.info("Hyperparameters are {}".format(hparams))
     rng_val = jax.random.PRNGKey(hparams.seed)
     train_maxsteps = hparams.train_maxsteps if not hparams.debug else 1
     val_maxsteps = hparams.val_maxsteps if not hparams.debug else 1
-    log_frequency = hparams.log_frequency
 
     #  log
     logging.info("Initialising logger...")
@@ -144,7 +144,7 @@ def main(argv):
                 xs,
                 ys_hat,
                 ys,
-                log_frequency,
+                hparams.log_frequency,
                 global_step,
                 train_state,
             )
@@ -169,7 +169,7 @@ def main(argv):
                 xs,
                 ys_hat,
                 ys,
-                log_frequency,
+                hparams.log_frequency,
                 global_step,
             )
 
@@ -189,7 +189,7 @@ def main(argv):
                 xs,
                 ys_hat,
                 ys,
-                log_frequency,
+                hparams.log_frequency,
                 global_step,
             )
 
