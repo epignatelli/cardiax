@@ -110,7 +110,7 @@ def main(argv):
     optimiser = Optimiser(*optimizers.adam(hparams.lr))
     if hparams.from_checkpoint not in ("", None):
         logging.info("Loading pretrained state from {}".format(hparams.from_checkpoint))
-        train_state = optimise.TrainState.load(hparams.from_checkpoint)
+        train_state = optimise.TrainState.restore(hparams.from_checkpoint)
         rng = train_state.rng
         params = train_state.params
         global_step = train_state.global_step
