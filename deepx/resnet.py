@@ -71,15 +71,36 @@ class HParams(NamedTuple):
         )
 
 
-def ResidualBlock(out_channels, kernel_size, stride, padding, input_format):
+def ResidualBlock(out_channels):
     double_conv = stax.serial(
-        stax.GeneralConv(input_format, out_channels, kernel_size, stride, padding),
+        stax.GeneralConv(
+            ("NCDWH", "IDWHO", "NCDWH"), out_channels, (4, 3, 3), (1, 1, 1), "SAME"
+        ),
+        stax.GeneralConv(
+            ("NCDWH", "IDWHO", "NCDWH"), out_channels, (1, 1, 1), (1, 1, 1), "SAME"
+        ),
         stax.Elu,
     )
     return Module(
         *stax.serial(
-            stax.FanOut(2), stax.parallel(double_conv, stax.Identity), stax.FanInSum
+            stax.FanOut(2),
+            stax.parallel(
+                double_conv,
+                stax.Identity,
+            ),
+            stax.FanInSum,
         )
+    )
+
+
+def DenseConvBlock(out_channels, depth):
+    return stax.serial(
+        stax.FanOut(2),
+        stax.parallel(
+            stax.serial(*[ResidualBlock(out_channels) for _ in depth]),
+            stax.Identity,
+        ),
+        stax.FanInSum,
     )
 
 
@@ -97,22 +118,14 @@ def Euler():
 
 
 @pmodule
-def ResNet(hidden_channels, out_channels, depth):
+def ResNet(hidden_channels, out_channels, depth, denseconv_step):
+    denseconv_depth = depth // denseconv_step
     # time integration module
     backbone = stax.serial(
         stax.GeneralConv(
             ("NCDWH", "IDWHO", "NCDWH"), hidden_channels, (4, 3, 3), (1, 1, 1), "SAME"
         ),
-        *[
-            ResidualBlock(
-                hidden_channels,
-                (4, 3, 3),
-                (1, 1, 1),
-                "SAME",
-                ("NCDWH", "IDWHO", "NCDWH"),
-            )
-            for _ in range(depth)
-        ],
+        *[DenseConvBlock(hidden_channels, denseconv_depth) for _ in range(depth)],
         stax.GeneralConv(
             ("NCDWH", "IDWHO", "NCDWH"), out_channels, (4, 3, 3), (1, 1, 1), "SAME"
         ),
