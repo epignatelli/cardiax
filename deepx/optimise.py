@@ -1,7 +1,6 @@
 import logging
 import os
 import pickle
-from collections import deque
 from functools import partial
 from typing import NamedTuple, Tuple
 
@@ -10,15 +9,7 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import wandb
-from helx.methods import scheduler
-from helx.types import (
-    Module,
-    Optimiser,
-    OptimizerState,
-    Params,
-    Scheduler,
-    SchedulerState,
-)
+from helx.types import Module, Optimiser, OptimizerState, Params
 from helx.distributed import redistribute_tree
 from jax.experimental import optimizers
 
@@ -249,28 +240,31 @@ log_test = partial(log, prefix="test")
 class TrainState(NamedTuple):
     rng: jnp.ndarray
     global_step: int
-    params: Params
+    opt_state: OptimizerState
     hparams: HParams
 
     def serialise(self):
-        return pickle.dumps(self)
+        state = self._replace(
+            opt_state=optimizers.unpack_optimizer_state(self.opt_state)
+        )
+        return pickle.dumps(state)
 
     @staticmethod
     def deserialise(obj):
         state = pickle.loads(obj)
-        state = state._replace(params=redistribute_tree(state.params))
+        opt_state = optimizers.pack_optimizer_state(state.opt_state)
+        state = state._replace(opt_state=redistribute_tree(opt_state))
         return state
 
     def save(self, filepath):
         with open(filepath, "wb") as f:
-            pickle.dump(self, f)
+            state = self.serialise()
+            f.write(state)
 
     @staticmethod
     def load(filepath):
         with open(filepath, "rb") as f:
-            state = pickle.load(f)
-            state = state._replace(params=redistribute_tree(state.params))
-            return state
+            return TrainState.deserialise(f.read())
 
     @staticmethod
     def restore(wandb_address):
