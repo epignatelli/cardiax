@@ -5,7 +5,7 @@ import logging
 import numpy as onp
 import jax
 import jax.numpy as jnp
-import asyncio
+import numpy as onp
 
 
 class Dataset:
@@ -26,6 +26,7 @@ class Dataset:
         self.batch_size = batch_size
         self.re_key = re_key
         self.files = [h5py.File(filepath, "r") for filepath in self._filepaths()]
+        self.n_devices = jax.local_device_count()
 
         #  private:
         self._n_sequences = len(self.files)
@@ -45,21 +46,28 @@ class Dataset:
     def num_batches(self):
         return len(self) // self.batch_size
 
+    def split_for_devices(self, arr):
+        return arr.reshape(
+            self.n_devices, arr.shape[0] // self.n_devices, *arr.shape[1:]
+        )
+
     def sample(self, rng):
         def _sample(i, t):
             sequence = self.files[i]
-            states = jnp.array(
+            states = onp.array(
                 sequence["states"][
                     t : t + (self.frames_in + self.frames_out) * self.step : self.step
                 ]
             )
-            diffusivity = jnp.array(sequence["diffusivity"])
+            diffusivity = onp.array(sequence["diffusivity"])
             return states, diffusivity
 
         def collate(ss, ds):
-            xs, ys = ss.split((self.frames_in,), axis=1)
-            dd = jnp.tile(ds[:, None, None], (1, self.frames_in, 1, 1, 1))
-            xs = jnp.concatenate([xs, dd], axis=-3)  # channel axis
+            xs, ys = onp.split(ss, (self.frames_in,), axis=1)
+            dd = onp.tile(ds[:, None, None], (1, self.frames_in, 1, 1, 1))
+            xs = onp.concatenate([xs, dd], axis=-3)  # channel axis
+            xs = self.split_for_devices(xs)
+            ys = self.split_for_devices(ys)
             return xs, ys
 
         sample_idx = lambda rng, maxval: jax.random.randint(
@@ -76,11 +84,11 @@ class Dataset:
             b, d = _sample(ids[i], starts[i])
             batch.append(b)
             diffusivities.append(d)
+        xs, ys = collate(onp.stack(batch), onp.stack(diffusivities))
+        return xs, ys
 
-        return collate(jnp.stack(batch), jnp.stack(diffusivities))
-
-    def increase_frames(self):
-        self.frames_out += 1
+    def increase_frames(self, n=1):
+        self.frames_out += n
         logging.info(
             "Increasing the amount of output frames to {} \t\t\t".format(
                 self.frames_out

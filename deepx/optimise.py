@@ -1,4 +1,7 @@
 import logging
+import os
+import pickle
+from collections import deque
 from functools import partial
 from typing import NamedTuple, Tuple
 
@@ -7,12 +10,22 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import wandb
-from helx.methods import batch, module
-from helx.types import Module, Optimiser, OptimizerState, Params, Shape
-from jax.experimental import optimizers, stax
+from helx.methods import scheduler
+from helx.types import (
+    Module,
+    Optimiser,
+    OptimizerState,
+    Params,
+    Scheduler,
+    SchedulerState,
+)
+from helx.distributed import redistribute_tree
+from jax.experimental import optimizers
+
+from deepx.resnet import HParams
 
 
-def compute_loss(y_hat, y, lamb=0.05):
+def compute_loss(y_hat, y):
     # zero derivative
     recon_loss = jnp.sqrt(jnp.mean((y_hat - y) ** 2))  # rmse
 
@@ -24,17 +37,7 @@ def compute_loss(y_hat, y, lamb=0.05):
     grad_loss_x = jnp.sqrt(jnp.mean((grad_y_hat_x - grad_y_x) ** 2))  # rmse
     grad_loss_y = jnp.sqrt(jnp.mean((grad_y_hat_y - grad_y_y) ** 2))  # rmse
     grad_loss = grad_loss_x + grad_loss_y
-
-    # second derivative
-    # del_y_hat_x = cardiax.solve.gradient(grad_y_hat_x, -1)
-    # del_y_hat_y = cardiax.solve.gradient(grad_y_hat_y, -1)
-    # del_y_x = cardiax.solve.gradient(grad_y_x, -1)
-    # del_y_y = cardiax.solve.gradient(grad_y_y, -1)
-    # del_loss_x = jnp.mean((del_y_hat_x - del_y_x) ** 2)  # mse
-    # del_loss_y = jnp.mean((del_y_hat_y - del_y_y) ** 2)  # mse
-    # del_loss = del_loss_x + del_loss_y
-
-    return (1 - lamb) * recon_loss + lamb * (grad_loss)
+    return recon_loss + 0.1 * grad_loss
 
 
 def preprocess(batch):
@@ -45,7 +48,6 @@ def preprocess(batch):
     return batch
 
 
-@partial(jax.jit, static_argnums=(0,))
 def forward(
     model: Module, params: Params, x: jnp.ndarray, y: jnp.ndarray
 ) -> Tuple[float, jnp.ndarray]:
@@ -54,12 +56,10 @@ def forward(
     return (loss, y_hat)
 
 
-@jax.jit
 def postprocess_gradients(gradients):
     return optimizers.clip_grads(gradients, 1.0)
 
 
-@partial(jax.jit, static_argnums=(0, 1))
 def sgd_step(
     model: Module,
     optimiser: Optimiser,
@@ -75,7 +75,6 @@ def sgd_step(
     return loss, y_hat, optimiser.update(iteration, gradients, optimiser_state)
 
 
-@jax.jit
 def refeed(x0, x1):
     ds = x0[:, :, -1:]  # diffusivity channel
     x1 = jnp.concatenate([x0[:, 1:, :-1], x1], axis=1)
@@ -83,7 +82,12 @@ def refeed(x0, x1):
     return x1
 
 
-@partial(jax.jit, static_argnums=(0, 1, 2))
+@partial(
+    jax.pmap,
+    in_axes=(None, None, None, None, None, 0, 0),
+    static_broadcasted_argnums=(0, 1, 2),
+    axis_name="device",
+)
 def tbtt_step(
     model: Module,
     optimiser: Optimiser,
@@ -106,10 +110,16 @@ def tbtt_step(
         body_fun, (xs, optimiser_state), xs=jnp.arange(n_refeed)
     )
     ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
+    losses = jax.lax.pmean(losses, axis_name="device")
     return (sum(losses), ys_hat, optimiser_state)
 
 
-@partial(jax.jit, static_argnums=(0, 1, 2))
+@partial(
+    jax.pmap,
+    in_axes=(None, None, None, None, 0, 0, 0),
+    static_broadcasted_argnums=(0, 1, 2),
+    axis_name="device",
+)
 def btt_step(
     model: Module,
     optimiser: Optimiser,
@@ -135,14 +145,21 @@ def btt_step(
         return sum(losses), ys_hat
 
     params = optimiser.params(optimiser_state)
-    btt = jax.value_and_grad(f, has_aux=True, argnums=1, allow_int=True)
+    btt = jax.value_and_grad(f, has_aux=True, argnums=1)
     (loss, ys_hat), grads = btt(xs, params)
     grads = postprocess_gradients(grads)
+    grads = jax.lax.pmean(grads, axis_name="device")
+    loss = jax.lax.pmean(loss, axis_name="device")
     optimiser_state = optimiser.update(iteration, grads, optimiser_state)
     return (loss, ys_hat, optimiser_state)
 
 
-@partial(jax.jit, static_argnums=(0, 1))
+@partial(
+    jax.pmap,
+    in_axes=(None, None, 0, 0, 0),
+    static_broadcasted_argnums=(0, 1),
+    axis_name="device",
+)
 def evaluate(
     model: Module,
     n_refeed: int,
@@ -159,10 +176,8 @@ def evaluate(
 
     _, (losses, ys_hat) = jax.lax.scan(body_fun, xs, xs=jnp.arange(n_refeed))
     ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
+    losses = jax.lax.pmean(losses, axis_name="device")
     return (sum(losses), ys_hat)
-
-
-pevaluate = jax.pmap(evaluate, static_broadcasted_argnums=(0, 2))
 
 
 def log(
@@ -176,6 +191,7 @@ def log(
     ys,
     log_frequency,
     global_step,
+    train_state=None,
     prefix="",
 ):
     loss = float(loss)
@@ -194,11 +210,11 @@ def log(
         {"{}/loss".format(prefix): loss, "epoch": current_epoch, "batch": step},
         step=global_step,
     )
-    diffusivity = xs[:, :, -1:].squeeze()[0, -1]
+    diffusivity = xs[0, 0, -1, -1]  #  (device, batch, t, c, w, h)
 
     def log_states(array, name, **kw):
         # take only first element in batch and last frame
-        a = array[0, -1]
+        a = array[0, 0, -1]  #  (device, batch, t, c, w, h)
         state = cardiax.solve.State(a[0], a[1], a[2])
         fig, _ = cardiax.plot.plot_state(state, diffusivity=diffusivity, **kw)
         wandb.log(
@@ -208,14 +224,61 @@ def log(
         plt.close(fig)
 
     # log input states
-    log_states(xs[:, :, :3], "inputs")
+    log_states(xs[:, :, :, :3], "inputs")
     log_states(ys_hat, "predictions")
     log_states(ys, "truth")
     log_states(jnp.abs(ys_hat - ys), "L1")
     # log_states(compute_loss(ys_hat, ys), "Our loss")
+
+    if train_state is None or (step % log_frequency * 4):
+        return
+
+    params_path = os.path.join(
+        wandb.run.dir, "train_state_{}.pickle".format(global_step)
+    )
+    train_state.save(params_path)
+    wandb.save(params_path, base_path=wandb.run.dir)
     return
 
 
 log_train = partial(log, prefix="train")
 log_val = partial(log, prefix="val")
 log_test = partial(log, prefix="test")
+
+
+class TrainState(NamedTuple):
+    rng: jnp.ndarray
+    global_step: int
+    params: Params
+    hparams: HParams
+
+    def serialise(self):
+        return pickle.dumps(self)
+
+    @staticmethod
+    def deserialise(obj):
+        state = pickle.loads(obj)
+        state = state._replace(params=redistribute_tree(state.params))
+        return state
+
+    def save(self, filepath):
+        with open(filepath, "wb") as f:
+            pickle.dump(self, f)
+
+    @staticmethod
+    def load(filepath):
+        with open(filepath, "rb") as f:
+            state = pickle.load(f)
+            state = state._replace(params=redistribute_tree(state.params))
+            return state
+
+    @staticmethod
+    def restore(wandb_address):
+        if os.path.exists(wandb_address):
+            return TrainState.load(wandb_address)
+        run_id, step = wandb_address.strip().split("/")
+        api = wandb.Api()
+        run = api.run("epignatelli/deepx/{}".format(run_id))
+        filename = "train_state_{}.pickle".format(step)
+        run.file(filename).download(replace=True)
+        return TrainState.load(filename)
