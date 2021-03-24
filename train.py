@@ -64,22 +64,20 @@ def main(argv):
         hparams = train_state.hparams
         rng = train_state.rng
         global_step = train_state.global_step
-        params = train_state.params
+        opt_state = train_state.opt_state
     else:
         hparams = resnet.HParams.from_flags(FLAGS)
         rng = jax.random.PRNGKey(hparams.seed)
         global_step = 0
-        params = None
-
-    logging.info("Hyperparameters are {}".format(hparams))
-    rng_val = jax.random.PRNGKey(hparams.seed)
-    train_maxsteps = hparams.train_maxsteps if not hparams.debug else 1
-    val_maxsteps = hparams.val_maxsteps if not hparams.debug else 1
+        opt_state = None
 
     #  log
+    logging.info("Hyperparameters are {}".format(hparams))
     logging.info("Initialising logger...")
     wandb.init(project="deepx")
     wandb.config.update(hparams._asdict())
+    train_maxsteps = hparams.train_maxsteps if not hparams.debug else 1
+    val_maxsteps = hparams.val_maxsteps if not hparams.debug else 1
 
     #  datasets
     logging.info("Creating datasets...")
@@ -94,6 +92,7 @@ def main(argv):
     train_set = make_dataset("train", n_sequence_out)
     val_set = make_dataset("val", n_sequence_out)
     test_set = make_dataset("val", hparams.test_refeed)
+    rng_val = jax.random.PRNGKey(hparams.seed)
 
     #  init model
     logging.info("Initialising model...")
@@ -105,16 +104,17 @@ def main(argv):
 
     #  init optimiser
     logging.info("Initialising optimisers...")
+    optimiser = Optimiser(*optimizers.adam(hparams.lr))
+
     input_shape = (
         hparams.batch_size,
         hparams.frames_in,
         hparams.in_channels,
         *hparams.size,
     )
-    if params is None:
+    if opt_state is None:
         _, params = model.init(rng, input_shape)
-    optimiser = Optimiser(*optimizers.adam(hparams.lr))
-    opt_state = optimiser.init(params)
+        opt_state = optimiser.init(params)
 
     #  training
     logging.info("Starting training...")
