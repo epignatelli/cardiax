@@ -33,6 +33,9 @@ def compute_loss(y_hat, y):
 
 def preprocess(batch):
     xs, ys = batch
+    xs = jnp.concatenate(
+        [xs[:, :, :, :3], xs[:, :, :, -1:] * 1000], axis=-3
+    )  # scale diffusivity to (1, 0.2)
     mu, sigma = xs.mean(), xs.std()
     normalise = lambda x: (x - mu) / sigma
     batch = normalise(xs), normalise(ys)
