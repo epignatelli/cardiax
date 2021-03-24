@@ -132,8 +132,7 @@ def main(argv):
                 model, optimiser, hparams.refeed, k, opt_state, xs, ys
             )
             j_train = j_train[0]  #  remove device axis - loss is returned synchronised
-            params = optimiser.params(opt_state)
-            train_state = optimise.TrainState(rng, global_step, params, hparams)
+            train_state = optimise.TrainState(rng, global_step, opt_state, hparams)
             train_loss_epoch += j_train
             optimise.log_train(
                 i,
