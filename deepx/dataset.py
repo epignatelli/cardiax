@@ -59,7 +59,6 @@ class Dataset:
                 ]
             )
             diffusivity = onp.array(sequence["diffusivity"])
-            diffusivity = diffusivity * 1000  # rescale diffusivity to (1, 0.2)
             return states, diffusivity
 
         def collate(ss, ds):
