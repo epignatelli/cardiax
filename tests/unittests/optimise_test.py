@@ -63,5 +63,5 @@ def test_trainstate_load():
 
 
 if __name__ == "__main__":
-    # test_trainstate_save()
+    test_trainstate_save()
     test_trainstate_load()
