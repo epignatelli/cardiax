@@ -1,10 +1,9 @@
-import re
-import os
-import h5py
 import logging
-import numpy as onp
+import os
+import re
+
+import h5py
 import jax
-import jax.numpy as jnp
 import numpy as onp
 
 
