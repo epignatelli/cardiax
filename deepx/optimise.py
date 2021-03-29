@@ -1,7 +1,6 @@
 import logging
 import os
 import pickle
-from collections import deque
 from functools import partial
 from typing import NamedTuple, Tuple
 
@@ -10,22 +9,14 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import wandb
-from helx.methods import scheduler
-from helx.types import (
-    Module,
-    Optimiser,
-    OptimizerState,
-    Params,
-    Scheduler,
-    SchedulerState,
-)
+from helx.types import Module, Optimiser, OptimizerState, Params
 from helx.distributed import redistribute_tree
 from jax.experimental import optimizers
 
 from deepx.resnet import HParams
 
 
-def compute_loss(y_hat, y, lamb=0.05):
+def compute_loss(y_hat, y):
     # zero derivative
     recon_loss = jnp.sqrt(jnp.mean((y_hat - y) ** 2))  # rmse
 
@@ -37,15 +28,15 @@ def compute_loss(y_hat, y, lamb=0.05):
     grad_loss_x = jnp.sqrt(jnp.mean((grad_y_hat_x - grad_y_x) ** 2))  # rmse
     grad_loss_y = jnp.sqrt(jnp.mean((grad_y_hat_y - grad_y_y) ** 2))  # rmse
     grad_loss = grad_loss_x + grad_loss_y
-    return (1 - lamb) * recon_loss + lamb * (grad_loss)
+    return recon_loss + grad_loss
 
 
 def preprocess(batch):
     xs, ys = batch
-    mu, sigma = xs.mean(), xs.std()
-    normalise = lambda x: (x - mu) / sigma
-    batch = normalise(xs), normalise(ys)
-    return batch
+    xs = jnp.concatenate(
+        [xs[:, :, :, :3], xs[:, :, :, -1:] * 500], axis=-3
+    )  # rescale diffusivity to median of the other fields
+    return (xs, ys)
 
 
 def forward(
@@ -248,26 +239,40 @@ log_test = partial(log, prefix="test")
 
 class TrainState(NamedTuple):
     rng: jnp.ndarray
-    global_step: int
-    params: Params
+    iteration: int
+    opt_state: OptimizerState
     hparams: HParams
 
     def serialise(self):
-        return pickle.dumps(self)
+        state = self._replace(
+            opt_state=optimizers.unpack_optimizer_state(self.opt_state)
+        )
+        return pickle.dumps(state)
 
     @staticmethod
     def deserialise(obj):
         state = pickle.loads(obj)
-        state = state._replace(params=redistribute_tree(state.params))
+        opt_state = optimizers.pack_optimizer_state(state.opt_state)
+        state = state._replace(opt_state=redistribute_tree(opt_state))
         return state
 
     def save(self, filepath):
         with open(filepath, "wb") as f:
-            pickle.dump(self, f)
+            state = self.serialise()
+            f.write(state)
 
     @staticmethod
     def load(filepath):
         with open(filepath, "rb") as f:
-            state = pickle.load(f)
-            state = state._replace(params=redistribute_tree(state.params))
-            return state
+            return TrainState.deserialise(f.read())
+
+    @staticmethod
+    def restore(wandb_address):
+        if os.path.exists(wandb_address):
+            return TrainState.load(wandb_address)
+        run_id, step = wandb_address.strip().split("/")
+        api = wandb.Api()
+        run = api.run("epignatelli/deepx/{}".format(run_id))
+        filename = "train_state_{}.pickle".format(step)
+        run.file(filename).download(replace=True)
+        return TrainState.load(filename)

@@ -191,7 +191,7 @@ def animate_state(states, diffusivity=None, times=None, **kwargs):
             FuncFormatter(lambda y, _: "{:.1f}".format(y / 100))
         )
         ax[i].set_ylabel("y [cm]")
-        fig.title = "time: {}".format(times[0])
+        fig.suptitle = "time: {}".format(times[0])
 
         graphics.append(im)
 

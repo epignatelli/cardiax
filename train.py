@@ -39,7 +39,7 @@ flags.DEFINE_float("teacher_forcing_prob", 0.0, "")
 flags.DEFINE_string("from_checkpoint", "", "")
 
 #  input data arguments
-flags.DEFINE_string("root", "/rds/general/user/sg6513/ephemeral/data/", "")
+flags.DEFINE_string("root", "$EPHEMERAL/data/", "")
 flags.DEFINE_string("paramset", "paramset5", "")
 flags.DEFINE_list("size", [256, 256], "")
 flags.DEFINE_integer("frames_in", 2, "")
@@ -57,31 +57,29 @@ def main(argv):
         stream=sys.stdout, level=logging.DEBUG if FLAGS.debug else logging.INFO
     )
     #  hparms
-    logging.info("Parsing hyperparamers and initialising logger...")
-    hparams = resnet.HParams.from_flags(FLAGS)
-    train_maxsteps = hparams.train_maxsteps if not hparams.debug else 1
-    val_maxsteps = hparams.val_maxsteps if not hparams.debug else 1
-    log_frequency = hparams.log_frequency
-    wandb.init(project="deepx")
+    logging.info("Initialising hyperparamers...")
+    if (url := FLAGS.from_checkpoint) not in ("", None):
+        logging.info("Loading pretrained state from {}".format(url))
+        train_state = optimise.TrainState.restore(url)
+        hparams = train_state.hparams
+        rng = train_state.rng
+        global_step = train_state.iteration
+        opt_state = train_state.opt_state
+    else:
+        hparams = resnet.HParams.from_flags(FLAGS)
+        rng = jax.random.PRNGKey(hparams.seed)
+        global_step = 0
+        opt_state = None
 
     #  log
-    logging.info("Logging hyperparameters...")
-    list(
-        map(
-            lambda i: setattr(wandb.config, hparams._fields[i], hparams[i]),
-            list(range(len(hparams))),
-        )
-    )
-    n_sequence_out = hparams.refeed * hparams.frames_out
+    logging.info("Hyperparameters are {}".format(hparams))
+    logging.info("Initialising logger...")
+    wandb.init(project="deepx")
+    wandb.config.update(hparams._asdict())
+    train_maxsteps = hparams.train_maxsteps if not hparams.debug else 1
+    val_maxsteps = hparams.val_maxsteps if not hparams.debug else 1
 
     #  datasets
-    input_shape = (
-        hparams.batch_size,
-        hparams.frames_in,
-        hparams.in_channels,
-        *hparams.size,
-    )
-    logging.debug("Input shape is : {}".format(input_shape))
     logging.info("Creating datasets...")
     make_dataset = lambda subdir, n: Dataset(
         folder=os.path.join(hparams.root, subdir),
@@ -90,14 +88,14 @@ def main(argv):
         step=hparams.step,
         batch_size=hparams.batch_size,
     )
+    n_sequence_out = hparams.refeed * hparams.frames_out
     train_set = make_dataset("train", n_sequence_out)
     val_set = make_dataset("val", n_sequence_out)
     test_set = make_dataset("val", hparams.test_refeed)
+    rng_val = jax.random.PRNGKey(hparams.seed)
 
     #  init model
     logging.info("Initialising model...")
-    rng = jax.random.PRNGKey(hparams.seed)
-    rng_val = jax.random.PRNGKey(hparams.seed)
     model = resnet.ResNet(
         hidden_channels=hparams.hidden_channels,
         out_channels=hparams.frames_out,
@@ -106,18 +104,17 @@ def main(argv):
 
     #  init optimiser
     logging.info("Initialising optimisers...")
-    _, params = model.init(rng, input_shape)
     optimiser = Optimiser(*optimizers.adam(hparams.lr))
-    if hparams.from_checkpoint not in ("", None):
-        logging.info("Loading pretrained state from {}".format(hparams.from_checkpoint))
-        train_state = optimise.TrainState.load(hparams.from_checkpoint)
-        rng = train_state.rng
-        params = train_state.params
-        global_step = train_state.global_step
-    else:
-        global_step = 0
-        train_state = optimise.TrainState(rng, 0, params, hparams)
-    opt_state = optimiser.init(params)
+
+    input_shape = (
+        hparams.batch_size,
+        hparams.frames_in,
+        hparams.in_channels,
+        *hparams.size,
+    )
+    if opt_state is None:
+        _, params = model.init(rng, input_shape)
+        opt_state = optimiser.init(params)
 
     #  training
     logging.info("Starting training...")
@@ -135,8 +132,7 @@ def main(argv):
                 model, optimiser, hparams.refeed, k, opt_state, xs, ys
             )
             j_train = j_train[0]  #  remove device axis - loss is returned synchronised
-            params = optimiser.params(opt_state)
-            train_state = optimise.TrainState(rng, global_step, params, hparams)
+            train_state = optimise.TrainState(rng, global_step, opt_state, hparams)
             train_loss_epoch += j_train
             optimise.log_train(
                 i,
@@ -147,7 +143,7 @@ def main(argv):
                 xs,
                 ys_hat,
                 ys,
-                log_frequency,
+                hparams.log_frequency,
                 global_step,
                 train_state,
             )
@@ -172,7 +168,7 @@ def main(argv):
                 xs,
                 ys_hat,
                 ys,
-                log_frequency,
+                hparams.log_frequency,
                 global_step,
             )
 
@@ -192,7 +188,7 @@ def main(argv):
                 xs,
                 ys_hat,
                 ys,
-                log_frequency,
+                hparams.log_frequency,
                 global_step,
             )
 
