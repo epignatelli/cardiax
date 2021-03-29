@@ -147,6 +147,24 @@ def btt_step(
 
 @partial(
     jax.pmap,
+    in_axes=(None, None, 0, 0),
+    static_broadcasted_argnums=(0, 1),
+    axis_name="device",
+)
+def infer(model, n_refeed, params, xs):
+    def body_fun(inputs, i):
+        x = inputs
+        y_hat = model.apply(params, x)
+        x = refeed(x, y_hat)  #  add the new pred to the inputs
+        return x, y_hat
+
+    _, ys_hat = jax.lax.scan(body_fun, xs, xs=jnp.arange(n_refeed))
+    ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
+    return ys_hat
+
+
+@partial(
+    jax.pmap,
     in_axes=(None, None, 0, 0, 0),
     static_broadcasted_argnums=(0, 1),
     axis_name="device",
