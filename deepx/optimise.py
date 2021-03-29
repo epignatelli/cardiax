@@ -28,7 +28,7 @@ def compute_loss(y_hat, y):
     grad_loss_x = jnp.sqrt(jnp.mean((grad_y_hat_x - grad_y_x) ** 2))  # rmse
     grad_loss_y = jnp.sqrt(jnp.mean((grad_y_hat_y - grad_y_y) ** 2))  # rmse
     grad_loss = grad_loss_x + grad_loss_y
-    return recon_loss + 0.1 * grad_loss
+    return recon_loss + grad_loss
 
 
 def preprocess(batch):
