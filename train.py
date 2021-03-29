@@ -82,7 +82,7 @@ def main(argv):
     #  datasets
     logging.info("Creating datasets...")
     make_dataset = lambda subdir, n: Dataset(
-        folder=os.path.join(hparams.root, subdir),
+        folder=os.path.join(FLAGS.root, subdir),
         frames_in=hparams.frames_in,
         frames_out=n,
         step=hparams.step,
