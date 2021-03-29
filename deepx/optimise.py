@@ -239,7 +239,7 @@ log_test = partial(log, prefix="test")
 
 class TrainState(NamedTuple):
     rng: jnp.ndarray
-    global_step: int
+    iteration: int
     opt_state: OptimizerState
     hparams: HParams
 

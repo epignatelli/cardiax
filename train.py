@@ -63,7 +63,7 @@ def main(argv):
         train_state = optimise.TrainState.restore(url)
         hparams = train_state.hparams
         rng = train_state.rng
-        global_step = train_state.global_step
+        global_step = train_state.iteration
         opt_state = train_state.opt_state
     else:
         hparams = resnet.HParams.from_flags(FLAGS)
