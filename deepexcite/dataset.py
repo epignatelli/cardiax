@@ -11,7 +11,7 @@ class FkDataset():
                  keys=None, transform=None, squeeze=False):
         self.root = root
         self.squeeze = squeeze
-
+        
         filenames = [os.path.join(root, name) for name in sorted(os.listdir(root)) if name.endswith("hdf5")]
         if keys is not None:
             filenames = [name for name in filenames 

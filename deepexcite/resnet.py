@@ -15,7 +15,8 @@ from utils import Downsample, Normalise, Rotate, Flip, Noise
 import random
 import math
 from functools import partial
-from pytorch_lightning.callbacks import LearningRateLogger, ModelCheckpoint
+from pytorch_lightning.callbacks import LearningRateLogger as LearningRateTracker #LearningRateMonitor > 0.9.0 or LearningRateLogger to work with version <=0.9.0
+from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks.base import Callback
 
 
@@ -225,7 +226,7 @@ class ResNet(LightningModule):
 
             # update input sequence with predicted frames
             if (self.frames_out > 1):
-                x = torch.cat([x[:, -(self.frames_in - 1):], y_hat.unsqueeze(1)], dim=1)
+                x = torch.cat([x[:, -(self.frames_in - 1):], y_hat], dim=1)
                 self.profile_gpu_memory()
             
         # logging losses
@@ -245,13 +246,15 @@ class ResNet(LightningModule):
         
         output_sequence = torch.empty_like(y, requires_grad=False, device="cpu")
         loss = {}
-        for i in range(self.frames_out):
+        print(self.frames_out)
+        for i in range(50): 
+            #self.frames_out.value):
             # forward pass
-            y_hat = self(x).squeeze()
+            y_hat = self(x)#.squeeze()
             self.profile_gpu_memory()
             
             # calculate loss
-            current_loss = self.get_loss(y_hat, y[:, i])
+            current_loss = self.get_loss(y_hat.squeeze(), y[:, i])
             y_hat = y_hat.detach()
             total_loss = sum(current_loss.values())
             for k, v in current_loss.items():
@@ -259,18 +262,20 @@ class ResNet(LightningModule):
             self.profile_gpu_memory()
             
             # update output sequence
-            output_sequence[:, i] = y_hat
+            output_sequence[:, i] = y_hat.squeeze()
             self.profile_gpu_memory()
 
             # update input sequence with predicted frames
-            if (self.frames_out > 1):
-                x = torch.cat([x[:, -(self.frames_in - 1):], y_hat.unsqueeze(1)], dim=1)
+            if (50 > 1): #self.frames_out > 1):
+                #print(y_hat.shape, y_hat.unsqueeze(1).shape)
+                #print(x.shape)
+                x = torch.cat([x[:, -(self.frames_in - 1):], y_hat], dim=1)
                 self.profile_gpu_memory()
             
         # logging losses
         logs = {"val_loss/" + k: v for k, v in loss.items()}
         logs["val_loss/total_loss"] = total_loss
-        return {"loss": total_loss, "log": logs}#, "x": batch[:, :self.frames_in], "y_hat": output_sequence, "y": y}
+        return {"loss": total_loss, "log": logs, "x": batch[:, :self.frames_in], "y_hat": output_sequence, "y": y}
 
     def validation_epoch_end(self, outputs):
         loss = torch.stack([x["loss"] for x in outputs]).mean()
@@ -392,7 +397,7 @@ if __name__ == "__main__":
                                          train_percent_check=0.1 if args.profile else 1.0,
                                          val_percent_check=0.1 if args.profile else 1.0,
                                          checkpoint_callback=ModelCheckpoint(save_last=True, save_top_k=2),
-                                         callbacks=[LearningRateLogger(), IncreaseFramsesOut(trigger_at=1.6e-3 if not args.profile else 10.)])
+                                         callbacks=[LearningRateTracker(), IncreaseFramsesOut(trigger_at=1.6e-3 if not args.profile else 10.)])
     
     trainer.fit(model, train_dataloader=train_loader, val_dataloaders=val_loader)
     

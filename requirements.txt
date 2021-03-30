@@ -1,7 +1,7 @@
 torch
 future
 h5py
-jax
+jax==0.2.10
 jupyter
 jupyterlab
 matplotlib
@@ -11,3 +11,7 @@ requests
 scipy
 scikit-learn
 tqdm
+torchvision
+pytorch-lightning==1.2.5 #0.8.5
+# after needs to install jaxlib==0.1.61+cuda101 -f https://storage.googleapis.com/jax-releases/jax_releases.html
+# also needs to install package from folder pip install -e .
