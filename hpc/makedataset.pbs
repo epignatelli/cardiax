@@ -5,12 +5,7 @@ module load cuda/10.1
 export XLA_FLAGS=--xla_gpu_cuda_data_dir=/apps/cuda/10.1
 export LD_LIBRARY_PATH=/apps/cuda/10.1:/apps/cuda/10.1/lib64:$LD_LIBRARY_PATH
 module load cudnn/7.0
-#create symlink because jax will look for libcudnn.so.7 but only libcudnn.so.7.0 exists within /apps/cudnn/7.0/lib64
-#mkdir /rds/general/user/sg6513/home/cudnn
-#mkdir /rds/general/user/sg6513/home/cudnn/7.0
-#mkdir /rds/general/user/sg6513/home/cudnn/7.0/lib64
-rm /rds/general/user/sg6513/home/cudnn/7.0/lib64/libcudnn.so.7
-ln -s /apps/cudnn/7.0/lib64/libcudnn.so.7.0 /rds/general/user/sg6513/home/cudnn/7.0/lib64/libcudnn.so.7
+
 #add the folder with the new symbolic link to the PATH
 export LD_LIBRARY_PATH=/rds/general/user/sg6513/home/cudnn/7.0/lib64:$LD_LIBRARY_PATH
 echo $LD_LIBRARY_PATH

@@ -1,14 +1,40 @@
-#PBS -lwalltime=22:00:00
-#PBS -lselect=1:ncpus=4:mem=24gb:ngpus=1:gpu_type=RTX6000
+#PBS -lwalltime=24:00:00
+#PBS -lselect=1:ncpus=16:mem=96gb:ngpus=4:gpu_type=RTX6000
+
+
+# set cuda version
+LOCAL_CUDNN_PATH=$HOME/cuda
+CUDNN_VERSION=6.5
+CUDA_VERSION=10.1
 
 module load anaconda3/personal
-module load cuda/10.2
-module load cudnn/7.0
-source activate cardiax
+module load cuda/$CUDA_VERSION
+# module load cudnn/$CUDNN_VERSION
 
-python /rds/general/user/sg6513/home/repos/cardiax/train.py --batch_size 32 --root '/rds/general/user/sg6513/ephemeral/data/' 
+# setup cuda paths
+export XLA_FLAGS=--xla_gpu_cuda_data_dir=/apps/cuda/$CUDA_VERSION
+# export LD_LIBRARY_PATH=/apps/cudnn/$CUDNN_VERSION:apps/cudnn/$CUDNN_VERSION/lib64:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=$LOCAL_CUDNN_PATH:$LOCAL_CUDNN_PATH/lib64:$LD_LIBRARY_PATH
+
+source activate cardiax101
+
+echo $XLA_FLAGS
+echo $LD_LIBRARY_PATH
+echo $CUDA_VISIBLE_DEVICES
+
+export TF_CPP_MIN_LOG_LEVEL=0
+
+# run training
+python $HOME/repos/cardiax/train.py \
+--batch_size=32 \
+--depth=10 \
+--refeed=5 \
+--increase_at=0.3 \
+--step=5 \
+--lr=0.001 \
+--root=$EPHEMERAL/data/scarmap_params3
 
 #move logs to dedicated folder
-PBS_JOBID_NB=${PBS_JOBID//[!0-9]}
-mv resnet.pbs.e${PBS_JOBID_NB} pbslogs/resnet.pbs.e${PBS_JOBID_NB}
-mv resnet.pbs.o${PBS_JOBID_NB} pbslogs/resnet.pbs.o${PBS_JOBID_NB}
+#PBS_JOBID_NB=${PBS_JOBID//[!0-9]}
+#mv $HOME/resnet.pbs.e${PBS_JOBID_NB} $HOME/pbslogs/resnet.pbs.e${PBS_JOBID_NB}
+#mv $HOME/resnet.pbs.o${PBS_JOBID_NB} $HOME/pbslogs/resnet.pbs.o${PBS_JOBID_NB}

@@ -21,10 +21,11 @@ echo $LD_LIBRARY_PATH
 export TF_CPP_MIN_LOG_LEVEL=0
 
 
-python  $HOME/repos/cardiax/make_dataset.py --filepath '$EPHEMERAL/data/val/verify_{}.hdf5' --start_seed 100 --n_sequences 10 --use_memory
+python  $HOME/repos/cardiax/make_dataset.py --filepath '/rds/general/user/sg6513/ephemeral/data/val/verify_{}.hdf5' --start_seed 100 --n_sequences 10
 
 #move logs to dedicated folder
 PBS_JOBID_NB=${PBS_JOBID//[!0-9]}
-mv makedatasetval.pbs.e${PBS_JOBID_NB} pbslogs/makedataseteval.pbs.e${PBS_JOBID_NB}
-mv makedatasetval.pbs.o${PBS_JOBID_NB} pbslogs/makedataseteval.pbs.o${PBS_JOBID_NB}
+mv $HOME/makedatasetval.pbs.e${PBS_JOBID_NB} $HOME/pbslogs/makedataseteval.pbs.e${PBS_JOBID_NB}
+mv $HOME/makedatasetval.pbs.o${PBS_JOBID_NB} $HOME/pbslogs/makedataseteval.pbs.o${PBS_JOBID_NB}
 
+03e0bd7bc7a76b88ffcca92d2f063a3dadcf9909
