@@ -1,7 +1,6 @@
 import logging
 import os
 import pickle
-from collections import deque
 from functools import partial
 from typing import NamedTuple, Tuple
 
@@ -10,15 +9,7 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import wandb
-from helx.methods import scheduler
-from helx.types import (
-    Module,
-    Optimiser,
-    OptimizerState,
-    Params,
-    Scheduler,
-    SchedulerState,
-)
+from helx.types import Module, Optimiser, OptimizerState, Params
 from helx.distributed import redistribute_tree
 from jax.experimental import optimizers
 
@@ -37,15 +28,15 @@ def compute_loss(y_hat, y):
     grad_loss_x = jnp.sqrt(jnp.mean((grad_y_hat_x - grad_y_x) ** 2))  # rmse
     grad_loss_y = jnp.sqrt(jnp.mean((grad_y_hat_y - grad_y_y) ** 2))  # rmse
     grad_loss = grad_loss_x + grad_loss_y
-    return recon_loss + 0.1 * grad_loss
+    return recon_loss + grad_loss
 
 
 def preprocess(batch):
     xs, ys = batch
-    mu, sigma = xs.mean(), xs.std()
-    normalise = lambda x: (x - mu) / sigma
-    batch = normalise(xs), normalise(ys)
-    return batch
+    xs = jnp.concatenate(
+        [xs[:, :, :, :3], xs[:, :, :, -1:] * 500], axis=-3
+    )  # rescale diffusivity to median of the other fields
+    return (xs, ys)
 
 
 def forward(
@@ -156,6 +147,24 @@ def btt_step(
 
 @partial(
     jax.pmap,
+    in_axes=(None, None, 0, 0),
+    static_broadcasted_argnums=(0, 1),
+    axis_name="device",
+)
+def infer(model, n_refeed, params, xs):
+    def body_fun(inputs, i):
+        x = inputs
+        y_hat = model.apply(params, x)
+        x = refeed(x, y_hat)  #  add the new pred to the inputs
+        return x, y_hat
+
+    _, ys_hat = jax.lax.scan(body_fun, xs, xs=jnp.arange(n_refeed))
+    ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
+    return ys_hat
+
+
+@partial(
+    jax.pmap,
     in_axes=(None, None, 0, 0, 0),
     static_broadcasted_argnums=(0, 1),
     axis_name="device",
@@ -248,29 +257,32 @@ log_test = partial(log, prefix="test")
 
 class TrainState(NamedTuple):
     rng: jnp.ndarray
-    global_step: int
-    params: Params
+    iteration: int
+    opt_state: OptimizerState
     hparams: HParams
 
     def serialise(self):
-        return pickle.dumps(self)
+        state = self._replace(
+            opt_state=optimizers.unpack_optimizer_state(self.opt_state)
+        )
+        return pickle.dumps(state)
 
     @staticmethod
     def deserialise(obj):
         state = pickle.loads(obj)
-        state = state._replace(params=redistribute_tree(state.params))
+        opt_state = optimizers.pack_optimizer_state(state.opt_state)
+        state = state._replace(opt_state=redistribute_tree(opt_state))
         return state
 
     def save(self, filepath):
         with open(filepath, "wb") as f:
-            pickle.dump(self, f)
+            state = self.serialise()
+            f.write(state)
 
     @staticmethod
     def load(filepath):
         with open(filepath, "rb") as f:
-            state = pickle.load(f)
-            state = state._replace(params=redistribute_tree(state.params))
-            return state
+            return TrainState.deserialise(f.read())
 
     @staticmethod
     def restore(wandb_address):
