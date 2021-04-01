@@ -36,7 +36,13 @@ def preprocess(batch):
     xs = jnp.concatenate(
         [xs[:, :, :, :3], xs[:, :, :, -1:] * 500], axis=-3
     )  # rescale diffusivity to median of the other fields
+    xs = jnp.pad(xs, (0, 0, 0, 0, 2, 2), mode="edge")
     return (xs, ys)
+
+
+def postprocess(xs):
+    xs = jnp.pad(xs, (0, 0, 0, 0, -2, -2), mode="edge")
+    return xs
 
 
 def forward(
@@ -63,7 +69,7 @@ def sgd_step(
     backward = jax.value_and_grad(forward, argnums=1, has_aux=True, allow_int=True)
     (loss, y_hat), gradients = backward(model, params, x, y)
     gradients = postprocess_gradients(gradients)
-    return loss, y_hat, optimiser.update(iteration, gradients, optimiser_state)
+    return loss, y_hat, optimiser.update(loss, gradients, optimiser_state)
 
 
 def refeed(x0, x1):
@@ -133,6 +139,7 @@ def btt_step(
             body_fun, (xs, params), xs=jnp.arange(n_refeed)
         )
         ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
+        ys_hat = postprocess(ys_hat)
         return sum(losses), ys_hat
 
     params = optimiser.params(optimiser_state)
@@ -141,7 +148,7 @@ def btt_step(
     grads = postprocess_gradients(grads)
     grads = jax.lax.pmean(grads, axis_name="device")
     loss = jax.lax.pmean(loss, axis_name="device")
-    optimiser_state = optimiser.update(iteration, grads, optimiser_state)
+    optimiser_state = optimiser.update(loss, grads, optimiser_state)
     return (loss, ys_hat, optimiser_state)
 
 
@@ -253,6 +260,19 @@ def log(
 log_train = partial(log, prefix="train")
 log_val = partial(log, prefix="val")
 log_test = partial(log, prefix="test")
+
+
+def LrScheduler(lr, window=10):
+    def schedule(losses):
+        m = sum(losses) / len(losses)
+        if m < 0.2:
+            return lr / 10
+        if m < 0.1:
+            return lr / 100
+        else:
+            return lr
+
+    return schedule
 
 
 class TrainState(NamedTuple):

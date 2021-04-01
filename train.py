@@ -104,7 +104,8 @@ def main(argv):
 
     #  init optimiser
     logging.info("Initialising optimisers...")
-    optimiser = Optimiser(*optimizers.adam(hparams.lr))
+    scheduler = optimise.LrScheduler(hparams.lr)
+    optimiser = Optimiser(*optimizers.adam(scheduler))
 
     input_shape = (
         hparams.batch_size,
