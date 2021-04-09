@@ -1,0 +1,12 @@
+#PBS -lwalltime=24:00:00
+#PBS -lselect=1:ncpus=32:mem=62gb
+
+module load anaconda3/personal
+source activate cardiax-cpu
+
+python  /rds/general/user/sg6513/home/repos/cardiax/make_dataset.py --filepath '/rds/general/user/sg6513/ephemeral/data/verify_{}.hdf5' --start_seed 75 --n_sequences 25
+
+#move logs to dedicated folder
+PBS_JOBID_NB=${PBS_JOBID//[!0-9]}
+mv makedataset-cpu.pbs.e${PBS_JOBID_NB} pbslogs/makedataset-cpu.pbs.e${PBS_JOBID_NB}
+mv makedataset-cpu.pbs.o${PBS_JOBID_NB} pbslogs/makedataset-cpu.pbs.o${PBS_JOBID_NB}
