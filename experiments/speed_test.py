@@ -37,11 +37,10 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "0"
 
 
-FILENAME = "/home/epignatelli/repos/cardiax/deepx/experiments/data/spiral.hdf5"
+FILENAME = "/home/epignatelli/repos/cardiax/experiments/data/spiral.hdf5"
 N_REFEED = 2
 URL = "p3aetobr/10351"  # TOP
 N_RUNS = 10
-BATCH_SIZE = 1
 
 
 def take(filename, t, length, normalise=False):
@@ -53,8 +52,8 @@ def take(filename, t, length, normalise=False):
         diffusivity = onp.tile(diffusivity[None, None], (2, 1, 1, 1))
         xs = onp.concatenate([states[:2], diffusivity], axis=-3)
         ys = states[2:]
-        xs = xs[None]
-        ys = ys[None]
+        xs = xs[None, None]
+        ys = ys[None, None]
         print(xs.shape, ys.shape)
         return xs, ys
 
@@ -68,18 +67,6 @@ def load_model(url):
     return model, hparams, params
 
 
-def infer(model, n_refeed, params, xs):
-    def body_fun(inputs, i):
-        x = inputs
-        y_hat = model.apply(params, x)
-        x = deepx.optimise.refeed(x, y_hat)  #  add the new pred to the inputs
-        return x, y_hat
-
-    _, ys_hat = jax.lax.scan(body_fun, xs, xs=jnp.arange(n_refeed))
-    ys_hat = jnp.swapaxes(jnp.squeeze(ys_hat), 0, 1)
-    return ys_hat
-
-
 def init(shape):
     xs, ys = take(FILENAME, 100, N_REFEED, True)
     xs = cardiax.io.imresize(xs, shape)
@@ -87,40 +74,39 @@ def init(shape):
     return xs
 
 
-def preprocess_cardiax(xs, batch_size=1):
+def preprocess_cardiax(xs):
     d = xs[:, :, :, -1:]
     xs = xs[:, :, :, :-1]
     state = xs.squeeze()[-1]
     state = cardiax.solve.State(*state)
     diffusivity = d.squeeze()[-1]
-    state = tuple([state] * batch_size)
     return state, diffusivity
 
 
-def preprocess_deepx(xs, batch_size=1):
-    return jnp.concatenate([xs] * batch_size, axis=0)
+def preprocess_deepx(xs):
+    return xs
 
 
-def speed_test(shape, batch_size):
+def speed_test(shape):
+
     #  init
     print("Initialising states...")
     xs = init(shape)
-    xs_cardiax, diffusivity = preprocess_cardiax(xs, batch_size=batch_size)
-    xs_deepx = preprocess_deepx(xs, batch_size=batch_size)
+    xs_cardiax, diffusivity = preprocess_cardiax(xs)
+    xs_deepx = preprocess_deepx(xs)
 
     print("Setting up times...")
     ts = jnp.arange(0, 10_000, 500)
     dt = 0.01
     dx = 0.01
     paramset = cardiax.params.PARAMSET_3
-    cardiax_forward = lambda x: cardiax.solve.forward(
-        x, ts, paramset, diffusivity, [], dx, dt, plot_while=False
+    cardiax_forward = lambda: cardiax.solve.forward(
+        xs_cardiax, ts, paramset, diffusivity, [], dx, dt, plot_while=False
     )
-    cardiax_forward = jax.jit(partial(jax.vmap(cardiax_forward), x=xs_cardiax))
 
     print("Loading model...")
     model, hparams, params = load_model(URL)
-    deepx_forward = jax.jit(lambda: infer(model, len(ts) - 1, params, xs_deepx))
+    deepx_forward = lambda: deepx.optimise.infer(model, len(ts) - 1, params, xs_deepx)
 
     #  warm up
     print("Warming up...")
@@ -144,7 +130,7 @@ if __name__ == "__main__":
         (512, 512),
         (1024, 1024),
     ]
-    folder = "/home/epignatelli/repos/cardiax/deepx/experiments/results"
+    folder = "/home/epignatelli/repos/cardiax/experiments/results/performance"
     os.makedirs(folder, exist_ok=True)
 
     c_times = {}
@@ -154,7 +140,7 @@ if __name__ == "__main__":
             # headers
             for shape in shapes:
                 print("Testing for shape ", shape)
-                cardiax_times, deepx_times = speed_test(shape, BATCH_SIZE)
+                cardiax_times, deepx_times = speed_test(shape)
                 c_times[shape] = cardiax_times
                 d_times[shape] = deepx_times
             pickle.dump(c_times, cf)
