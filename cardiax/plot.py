@@ -50,6 +50,7 @@ def plot_state(state, diffusivity=None, **kwargs):
     vmin = kwargs.pop("vmin", 0)
     vmax = kwargs.pop("vmax", 1)
     cmap = kwargs.pop("cmap", "RdBu_r")
+    dx = kwargs.pop("dx", 0.01)
 
     for i in range(len(array)):
         if array[i] is None:
@@ -58,11 +59,11 @@ def plot_state(state, diffusivity=None, **kwargs):
         plt.colorbar(im, ax=ax[i])
         ax[i].set_title(state._fields[i])
         ax[i].xaxis.set_major_formatter(
-            FuncFormatter(lambda y, _: "{:.1f}".format(y / 100))
+            FuncFormatter(lambda y, _: "{:.1f}".format(y * dx))
         )
         ax[i].set_xlabel("x [cm]")
         ax[i].yaxis.set_major_formatter(
-            FuncFormatter(lambda y, _: "{:.1f}".format(y / 100))
+            FuncFormatter(lambda y, _: "{:.1f}".format(y * dx))
         )
         ax[i].set_ylabel("y [cm]")
 
@@ -72,6 +73,12 @@ def plot_state(state, diffusivity=None, **kwargs):
         ax[i].set_title("Diffusivity map")
         ax[i].set_xlabel("x [cm]")
         ax[i].set_ylabel("y [cm]")
+        ax[i].xaxis.set_major_formatter(
+            FuncFormatter(lambda y, _: "{:.1f}".format(y * dx))
+        )
+        ax[i].yaxis.set_major_formatter(
+            FuncFormatter(lambda y, _: "{:.1f}".format(y * dx))
+        )
         clb = plt.colorbar(im, ax=ax[i])
         clb.ax.set_title("[cm^2/ms]")
     return fig, ax
