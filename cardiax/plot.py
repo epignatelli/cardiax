@@ -70,7 +70,7 @@ def plot_state(state, diffusivity=None, **kwargs):
     if diffusivity is not None:
         i += 1
         im = ax[i].imshow(diffusivity, cmap="gray")
-        ax[i].set_title("Diffusivity map")
+        ax[i].set_title("Conductivity map")
         ax[i].set_xlabel("x [cm]")
         ax[i].set_ylabel("y [cm]")
         ax[i].xaxis.set_major_formatter(
