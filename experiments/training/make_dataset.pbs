@@ -1,0 +1,33 @@
+#PBS -lwalltime=22:00:00
+#PBS -lselect=1:ncpus=4:mem=24gb:ngpus=1:gpu_type=RTX6000
+
+# set cuda version
+LOCAL_CUDNN_PATH=$HOME/cudnn
+CUDNN_VERSION=6.5
+CUDA_VERSION=10.1
+
+# load cuda
+module load anaconda3/personal
+module load cuda/$CUDA_VERSION
+
+# activate conda env
+source activate cardiax
+
+# setup cuda paths
+export XLA_FLAGS=--xla_gpu_cuda_data_dir=/apps/cuda/$CUDA_VERSION
+export LD_LIBRARY_PATH=$LOCAL_CUDNN_PATH:$LOCAL_CUDNN_PATH/lib64:$LD_LIBRARY_PATH
+echo $XLA_FLAGS
+echo $LD_LIBRARY_PATH
+export TF_CPP_MIN_LOG_LEVEL=0
+
+# run simulations
+python $HOME/repos/cardiax/make_dataset.py \
+--n_sequences=100 \
+--filepath=$EPHEMERAL/data/paramset_3/train/{}.hdf5 \
+--use_memory
+
+python $HOME/repos/cardiax/make_dataset.py \
+--n_sequences=10 \
+--filepath=$EPHEMERAL/data/paramset_3/val/{}.hdf5 \
+--use_memory \
+--start_seed=100

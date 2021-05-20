@@ -1,0 +1,10 @@
+#PBS -lwalltime=24:00:00
+#PBS -lselect=1:ncpus=4:mem=24gb:ngpus=1:gpu_type=RTX6000
+
+module load anaconda3/personal
+module load cuda/10.2
+source activate cardiax
+
+echo $CUDA_VISIBLE_DEVICES
+
+python /rds/general/user/sg6513/home/repos/cardiax/train.py --batch_size 32 --gpu $CUDA_VISIBLE_DEVICES --root '/rds/general/user/sg6513/ephemeral/data/' --log_dir /rds/general/user/sg6513/ephemeral/data/logs

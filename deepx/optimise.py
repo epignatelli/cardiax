@@ -75,7 +75,7 @@ def refeed(x0, x1):
 
 @partial(
     jax.pmap,
-    in_axes=(None, None, None, None, None, 0, 0),
+    in_axes=(None, None, None, None, 0, 0, 0),
     static_broadcasted_argnums=(0, 1, 2),
     axis_name="device",
 )
