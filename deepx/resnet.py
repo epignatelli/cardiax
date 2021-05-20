@@ -1,9 +1,7 @@
 from typing import NamedTuple
 
-import jax
 import jax.numpy as jnp
-from helx.methods import pmodule
-from helx.types import Module
+from helx.nn.module import pmodule, Module
 from jax.experimental import stax
 
 

@@ -16,3 +16,5 @@ tqdm
 wandb
 termcolor
 git+https://github.com/epignatelli/helx
+jupyterlab
+seaborn

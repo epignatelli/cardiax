@@ -9,7 +9,7 @@ import cardiax
 import deepx
 from deepx import optimise
 import helx
-from helx.types import Optimiser
+from helx.optimise import Optimiser
 import json
 import wandb
 import pickle
