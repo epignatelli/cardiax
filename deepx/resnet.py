@@ -1,9 +1,7 @@
 from typing import NamedTuple
 
-import jax
 import jax.numpy as jnp
-from helx.methods import pmodule
-from helx.types import Module
+from helx.nn.module import pmodule, Module
 from jax.experimental import stax
 
 
@@ -81,6 +79,21 @@ def ResidualBlock(out_channels, kernel_size, stride, padding, input_format):
             stax.FanOut(2), stax.parallel(double_conv, stax.Identity), stax.FanInSum
         )
     )
+
+
+def conv_params(input_format, out_channels, kernel_size, stride, padding):
+    return stax.GeneralConv(input_format, out_channels, kernel_size, stride, padding)[0]
+
+
+def MomentumBlock(out_channels, kernel_size, stride, padding, input_format, gamma=0.9):
+    def init(rng, input_shape):
+        params = conv_params(input_format, out_channels, kernel_size, stride, padding)(
+            rng, input_shape
+        )
+        return params
+
+    def apply(params, x, **kwargs):
+        params
 
 
 def Euler():

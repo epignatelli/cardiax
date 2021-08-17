@@ -8,7 +8,7 @@ from jax.experimental.optimizers import (
     pack_optimizer_state,
     unpack_optimizer_state,
 )
-from helx.types import Optimiser
+from helx.optimise import Optimiser
 
 
 def test_trainstate_save():

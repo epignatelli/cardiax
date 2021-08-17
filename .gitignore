@@ -1,6 +1,8 @@
 # vscode
 .vscode/*
-
+*.zip
+*.mat
+*.pickle
 
 # logs
 deepexcite/lightning_logs/

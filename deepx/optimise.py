@@ -9,9 +9,12 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import wandb
-from helx.types import Module, Optimiser, OptimizerState, Params
 from helx.distributed import redistribute_tree
+from helx.nn.module import Module
+from helx.optimise.optimisers import Optimiser
+from helx.typing import Params
 from jax.experimental import optimizers
+from jax.experimental.optimizers import OptimizerState
 
 from deepx.resnet import HParams
 

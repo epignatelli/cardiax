@@ -214,8 +214,8 @@ def animate_state(states, diffusivity=None, times=None, **kwargs):
     def update(t):
         state = states[t]
         for i in range(len(ax) - 1):
-            im = graphics[i].set_data(state[i])
-            fig.title = "time: {}".format(times[t])
+            graphics[i].set_data(state[i])
+            fig.suptitle = "time: {}".format(times[t])
         return graphics
 
     animation = FuncAnimation(fig, update, frames=range(len(states)), blit=True)
