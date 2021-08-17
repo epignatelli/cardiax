@@ -21,12 +21,12 @@ echo $LD_LIBRARY_PATH
 export TF_CPP_MIN_LOG_LEVEL=0
 
 # run simulations
-python $HOME/repos/cardiax/make_dataset.py \
+python $HOME/repos/cardiax/generate_FKset.py \
 --n_sequences=100 \
 --filepath=$EPHEMERAL/data/paramset_3/train/{}.hdf5 \
 --use_memory
 
-python $HOME/repos/cardiax/make_dataset.py \
+python $HOME/repos/cardiax/generate_FKset.py \
 --n_sequences=10 \
 --filepath=$EPHEMERAL/data/paramset_3/val/{}.hdf5 \
 --use_memory \
