@@ -36,17 +36,22 @@ def plot_diffusivity(diff, **kwargs):
     ax.set_xlabel("x [cm]")
     ax.set_ylabel("y [cm]")
     clb = plt.colorbar(im, ax=ax)
-    clb.ax.set_title("[cm^2/ms]")
+    # clb.ax.set_title("[cm^2/ms]")
     return fig, ax
 
 
 def plot_state(state, diffusivity=None, **kwargs):
     array = tuple(state)
-    fig, ax = plt.subplots(
-        1,
-        len(array) + int(diffusivity is not None),
-        figsize=(kwargs.pop("figsize", None) or (25, 5)),
-    )
+
+    if "ax" not in kwargs:
+        fig, ax = plt.subplots(
+            1,
+            len(array) + int(diffusivity is not None),
+            figsize=(kwargs.pop("figsize", None) or (25, 5)),
+        )
+    else:
+        fig = None
+        ax = kwargs.pop("ax")
     vmin = kwargs.pop("vmin", 0)
     vmax = kwargs.pop("vmax", 1)
     cmap = kwargs.pop("cmap", "RdBu_r")
@@ -70,9 +75,9 @@ def plot_state(state, diffusivity=None, **kwargs):
     if diffusivity is not None:
         i += 1
         im = ax[i].imshow(diffusivity, cmap="gray")
-        ax[i].set_title("Conductivity map")
-        ax[i].set_xlabel("x [cm]")
-        ax[i].set_ylabel("y [cm]")
+        ax[i].set_title("$\sigma$")
+        # ax[i].set_xlabel("x [cm]")
+        # ax[i].set_ylabel("y [cm]")
         ax[i].xaxis.set_major_formatter(
             FuncFormatter(lambda y, _: "{:.1f}".format(y * dx))
         )
@@ -80,7 +85,7 @@ def plot_state(state, diffusivity=None, **kwargs):
             FuncFormatter(lambda y, _: "{:.1f}".format(y * dx))
         )
         clb = plt.colorbar(im, ax=ax[i])
-        clb.ax.set_title("[cm^2/ms]")
+        # clb.ax.set_title("$[cm^2/ms]$")
     return fig, ax
 
 
